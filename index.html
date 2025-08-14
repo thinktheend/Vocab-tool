@@ -22,8 +22,74 @@
   <!-- ... all your main form HTML ... -->
 </main>
 <script>
+"use strict";
 (function(){
-  // ... all your JavaScript from the original file ...
+  const $ = (id) => document.getElementById(id);
+
+  function init(){
+    const out = $("output");
+    const gen = $("gen");
+    const copy = $("copy");
+    const status = $("status");
+    const topicEl = $("topic");
+    const levelEl = $("level");
+
+    gen.addEventListener('click', async () => {
+      const topic = topicEl.value.trim();
+      const level = levelEl.value;
+
+      if (!topic) {
+        status.textContent = "Please enter a topic.";
+        return;
+      }
+      
+      try {
+        // Update UI to show loading state
+        out.value = "Generating your vocabulary list... please wait.";
+        status.textContent = "Connecting to AI...";
+        gen.disabled = true;
+
+        // Call our new backend function
+        const response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ topic, level }),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || "An unknown error occurred.");
+        }
+        
+        // Success! Display the result from the AI
+        out.value = data.result;
+        status.textContent = "Generation complete!";
+
+      } catch (e) {
+        out.value = "Error: " + (e.message || String(e));
+        status.textContent = "Failed to generate.";
+        console.error(e);
+      } finally {
+        // Re-enable the generate button
+        gen.disabled = false;
+      }
+    });
+
+    copy.addEventListener('click', () => {
+      out.focus(); out.select();
+      try { 
+        document.execCommand('copy'); 
+        if(status) status.textContent = "Copied to clipboard."; 
+      } catch(e) {
+        status.textContent = "Failed to copy.";
+      }
+    });
+  }
+
+  window.addEventListener('DOMContentLoaded', init);
 })();
 </script>
 </body>
