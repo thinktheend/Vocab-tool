@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FCS Student Vocabulary Creator</title>
+<title>FCS Content Creator</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <style>
@@ -13,71 +13,78 @@
   }
   body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;margin:0;background-color:var(--bg-color);color:var(--text-color);line-height:1.6; }
   .container { max-width:900px; margin:30px auto; padding:0 20px; }
-  h1 { font-size:28px; text-align:center; margin-bottom:8px; }
-  .subtitle { text-align:center; color:var(--muted-text); margin-bottom:30px; }
+  h1, .subtitle { text-align:center; }
+  h1 { font-size:28px; margin-bottom:8px; }
+  .subtitle { color:var(--muted-text); margin-bottom:30px; }
   .card { background-color:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:24px;margin-bottom:24px;box-shadow:0 4px 6px rgba(0,0,0,0.05); }
   .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:flex-end; }
+  .grid.full { grid-column: 1 / -1; }
   .form-group { display:flex; flex-direction:column; }
   label { font-weight:600; margin-bottom:8px; font-size:14px; }
-  input, select { padding:10px; border-radius:6px; border:1px solid var(--border-color); font-size:16px; width:100%; box-sizing:border-box; }
+  input, select, textarea { padding:10px; border-radius:6px; border:1px solid var(--border-color); font-size:16px; width:100%; box-sizing:border-box; }
   .actions { display:flex; gap:12px; margin-top:20px; }
   button { padding:12px 20px; border:none; border-radius:6px; font-size:16px; font-weight:600; cursor:pointer; transition:background-color 0.2s; }
   button.primary { background-color:var(--primary-color); color:white; }
-  button.primary:hover { background-color:#0045b0; }
   button:disabled { background-color:#aeb8c4; cursor:not-allowed; }
   #status { margin-top:15px; color:var(--muted-text); min-height:1.5em; }
-  .output-container { background-color:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:10px 24px;min-height:200px; }
+  .output-container { background-color:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:10px 24px;min-height:200px; white-space: pre-wrap; }
   .output-container table { width:100%; border-collapse:collapse; margin:1.5em 0; }
   .output-container th, .output-container td { border:1px solid var(--border-color);padding:12px;text-align:left; }
   .output-container th { background-color:var(--bg-color); font-weight:700; }
   .output-container strong { color:var(--primary-color); }
-  .output-container td:first-child { width:50%; }
+  /* TOOL SELECTOR STYLES */
+  .tool-selector { display:flex; gap:10px; justify-content:center; margin-bottom:24px; }
+  .tool-selector button { background-color:#e9ecef; color:var(--text-color); border:1px solid var(--border-color); }
+  .tool-selector button.active { background-color:var(--primary-color); color:white; border-color:var(--primary-color); }
+  .hidden { display:none; }
 </style>
 </head>
 <body>
 <div class="container">
-  <h1>Spanish Vocabulary Creator</h1>
-  <p class="subtitle">Select a topic and level to instantly generate a structured vocabulary list.</p>
-
-  <div class="card">
-    <div class="grid">
-      <div class="form-group">
-        <label for="topic">Topic</label>
-        <input id="topic" type="text" placeholder="e.g., camping, dance" value="Travel">
-      </div>
-      <div class="form-group">
-        <label for="level">Level</label>
-        <select id="level">
-          <option value="1">Level 1 — Survival</option>
-          <option value="2">Level 2 — Beginner</option>
-          <option value="3">Level 3 — Intermediate</option>
-          <option value="4" selected>Level 4 — Conversational</option>
-          <option value="5">Level 5 — Fluent</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label for="totalsMode">Totals Mode</label>
-        <select id="totalsMode">
-          <option value="default" selected>Preset by Level</option>
-          <option value="custom">Custom</option>
-        </select>
-      </div>
-      <div class="form-group" id="customTotals" style="display: none;">
-        <div class="grid">
-            <div><label for="minTotal">Min Words</label><input id="minTotal" type="number" value="120"></div>
-            <div><label for="maxTotal">Max Words</label><input id="maxTotal" type="number" value="180"></div>
-        </div>
-      </div>
-    </div>
-    <div class="actions">
-      <button id="gen" class="primary">Generate Vocabulary</button>
-      <button id="excel" disabled>Download Excel</button>
-    </div>
-    <div id="status">Ready.</div>
-  </div>
+  <h1>FCS Content Creator</h1>
+  <p class="subtitle">Select a tool to generate Spanish learning materials.</p>
   
-  <h2 style="margin-top: 40px;">Generated Vocabulary</h2>
-  <div id="output" class="output-container"><p style="color: var(--muted-text);">Your AI-generated vocabulary list will appear here...</p></div>
+  <div class="tool-selector">
+    <button id="selectVocab" class="active">Vocabulary Generator</button>
+    <button id="selectConvo">Conversation Generator</button>
+  </div>
+
+  <!-- ======== VOCABULARY GENERATOR ======== -->
+  <div id="vocabGenerator">
+    <div class="card">
+      <div class="grid">
+        <div class="form-group"><label for="vocabTopic">Topic</label><input id="vocabTopic" type="text" value="Travel"></div>
+        <div class="form-group"><label for="vocabLevel">Level</label><select id="vocabLevel"><option value="4" selected>Level 4 — Conversational</option><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option><option value="5">Level 5</option></select></div>
+        <div class="form-group"><label for="vocabTotalsMode">Totals Mode</label><select id="vocabTotalsMode"><option value="default" selected>Preset by Level</option><option value="custom">Custom</option></select></div>
+        <div class="form-group" id="vocabCustomTotals" style="display:none;"><div class="grid"><div><label for="vocabMinTotal">Min</label><input id="vocabMinTotal" type="number" value="120"></div><div><label for="vocabMaxTotal">Max</label><input id="vocabMaxTotal" type="number" value="180"></div></div></div>
+      </div>
+      <div class="actions">
+        <button id="vocabGen" class="primary">Generate Vocabulary</button>
+        <button id="vocabExcel" disabled>Download Excel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======== CONVERSATION GENERATOR ======== -->
+  <div id="convoGenerator" class="hidden">
+      <div class="card">
+        <div class="grid"><div class="grid full">
+            <div class="form-group"><label for="convoTopic">Topic</label><input id="convoTopic" placeholder="e.g., about the game" type="text" value="Planning a trip"/></div>
+            <div class="form-group"><label for="convoLevel">Level (Grammar)</label><select id="convoLevel"><option value="5" selected>Level 5 - Fluent</option><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option><option value="4">Level 4</option></select></div>
+            <div class="grid full"><div class="form-group"><label for="convoVocab">Vocabulary (optional)</label><textarea id="convoVocab" placeholder="If empty, the AI will generate a level-appropriate list." rows="6"></textarea></div></div>
+            <div class="form-group"><label for="numConvos"># of Conversations</label><input id="numConvos" type="number" value="2" min="1"/></div>
+            <div class="form-group"><label for="numSpeakers"># of Speakers</label><input id="numSpeakers" type="number" value="2" min="1"/></div>
+            <div class="form-group"><label for="turns">Turns per Conversation</label><input id="turns" type="number" value="10" min="2"/></div>
+            <div class="form-group"><label for="tone">Tone</label><select id="tone"><option selected>Informal, friendly</option><option>Neutral, casual</option><option>Professional, formal</option></select></div>
+        </div></div>
+        <div class="actions"><button id="convoGen" class="primary">Generate Conversation</button></div>
+      </div>
+  </div>
+
+  <!-- ======== SHARED OUTPUT AREA ======== -->
+  <h2 style="margin-top:40px;">Generated Content</h2>
+  <div id="output" class="output-container"><p style="color:var(--muted-text);">Your AI-generated content will appear here...</p></div>
+  <div id="status" style="text-align:center;">Ready.</div>
 </div>
 
 <script>
@@ -85,131 +92,124 @@
 (function(){
   const $ = (id) => document.getElementById(id);
   
-  let lastResultMarkdown = ""; 
-
+  // --- Main Init Function ---
   function init(){
-    const outputDiv = $("output"), genBtn = $("gen"), excelBtn = $("excel");
-    const statusEl = $("status"), topicEl = $("topic"), levelEl = $("level");
-    const totalsModeEl = $("totalsMode"), customTotalsEl = $("customTotals");
-    const minTotalEl = $("minTotal"), maxTotalEl = $("maxTotal");
-
-    totalsModeEl.addEventListener('change', () => {
-        customTotalsEl.style.display = (totalsModeEl.value === 'custom') ? 'grid' : 'none';
+    setupToolSelector();
+    setupVocabGenerator();
+    setupConvoGenerator();
+  }
+  
+  // --- Tool Switching Logic ---
+  function setupToolSelector(){
+    const selectVocabBtn = $('selectVocab'), selectConvoBtn = $('selectConvo');
+    const vocabGenDiv = $('vocabGenerator'), convoGenDiv = $('convoGenerator');
+    selectVocabBtn.addEventListener('click', () => {
+      vocabGenDiv.classList.remove('hidden'); convoGenDiv.classList.add('hidden');
+      selectVocabBtn.classList.add('active'); selectConvoBtn.classList.remove('active');
     });
-
-    genBtn.addEventListener('click', async () => {
-      const payload = {
-          topic: topicEl.value.trim(),
-          level: levelEl.value,
-          totalsMode: totalsModeEl.value,
-          minTotal: minTotalEl.value,
-          maxTotal: maxTotalEl.value
-      };
-      if (!payload.topic) { statusEl.textContent = "Please enter a topic."; return; }
-      
-      try {
-        outputDiv.innerHTML = '<p style="color: var(--muted-text);">Generating your vocabulary list...</p>';
-        statusEl.textContent = "Connecting to AI...";
-        genBtn.disabled = true; excelBtn.disabled = true;
-        const response = await fetch('/api/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.message || "An unknown server error occurred.");
-        
-        lastResultMarkdown = data.result;
-        outputDiv.innerHTML = marked.parse(lastResultMarkdown);
-        statusEl.textContent = "Generation complete!";
-        excelBtn.disabled = false;
-      } catch (e) {
-        outputDiv.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${e.message || String(e)}</p>`;
-        statusEl.textContent = "Failed to generate.";
-      } finally {
-        genBtn.disabled = false;
-      }
-    });
-
-    excelBtn.addEventListener('click', () => {
-      if (!lastResultMarkdown) { statusEl.textContent = "Generate a list first."; return; }
-      statusEl.textContent = "Creating formatted Excel file...";
-      try {
-        generateAndDownloadExcel(lastResultMarkdown);
-        statusEl.textContent = "Excel file download started.";
-      } catch (e) {
-          statusEl.textContent = "Failed to create Excel file."; console.error(e);
-      }
+    selectConvoBtn.addEventListener('click', () => {
+      vocabGenDiv.classList.add('hidden'); convoGenDiv.classList.remove('hidden');
+      selectConvoBtn.classList.add('active'); selectVocabBtn.classList.remove('active');
     });
   }
   
-  // *** MAJOR REWRITE OF THIS FUNCTION FOR PROPER STYLING ***
-  function generateAndDownloadExcel(markdown) {
-    const wb = XLSX.utils.book_new();
-    const ws = {}; 
-    const data = []; // This will hold our final array of arrays for the sheet
+  // --- Vocabulary Generator Logic ---
+  function setupVocabGenerator() {
+    let lastResultMarkdown = ""; 
+    const outputDiv = $("output"), genBtn = $("vocabGen"), excelBtn = $("vocabExcel");
+    const statusEl = $("status"), topicEl = $("vocabTopic"), levelEl = $("vocabLevel");
+    const totalsModeEl = $("vocabTotalsMode"), customTotalsEl = $("vocabCustomTotals");
+    const minTotalEl = $("vocabMinTotal"), maxTotalEl = $("vocabMaxTotal");
+    
+    totalsModeEl.addEventListener('change', () => { customTotalsEl.style.display = (totalsModeEl.value === 'custom') ? 'block' : 'none'; });
+    
+    genBtn.addEventListener('click', async () => {
+      const payload = { toolType: 'vocabulary', topic: topicEl.value.trim(), level: levelEl.value, totalsMode: totalsModeEl.value, minTotal: minTotalEl.value, maxTotal: maxTotalEl.value };
+      if (!payload.topic) { statusEl.textContent = "Please enter a topic."; return; }
+      
+      try {
+        outputDiv.innerHTML = '<p style="color: var(--muted-text);">Generating vocabulary list...</p>';
+        statusEl.textContent = "Connecting to AI...";
+        genBtn.disabled = true; excelBtn.disabled = true;
+        const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.message || "Server error.");
+        
+        lastResultMarkdown = data.result;
+        outputDiv.innerHTML = marked.parse(lastResultMarkdown);
+        statusEl.textContent = "Generation complete!"; excelBtn.disabled = false;
+      } catch (e) {
+        outputDiv.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${e.message}</p>`; statusEl.textContent = "Failed to generate.";
+      } finally { genBtn.disabled = false; }
+    });
 
-    // --- Define Styles ---
-    const border = { top: {style:"thin"}, bottom: {style:"thin"}, left: {style:"thin"}, right: {style:"thin"} };
-    const headerFont = { sz: 12, bold: true };
-    const englishColor = { rgb: "0057D9" };
-    const spanishColor = { rgb: "C00000" };
-    const defaultFont = { sz: 12, color: { rgb: "000000" }};
+    excelBtn.addEventListener('click', () => {
+      if (!lastResultMarkdown) return;
+      statusEl.textContent = "Creating formatted Excel file...";
+      try {
+        const wb = XLSX.utils.book_new(); const ws = {}; 
+        const data = [];
+        const border = { top:{style:"thin"},bottom:{style:"thin"},left:{style:"thin"},right:{style:"thin"} };
+        const headerFont = { sz: 12, bold: true };
+        const englishColor = { rgb: "0057D9" }; const spanishColor = { rgb: "C00000" };
+        const defaultFont = { sz: 12, color: { rgb: "000000" }};
 
-    const lines = markdown.split('\n').filter(line => line.startsWith('|'));
-
-    for (const line of lines) {
-        if (line.includes('---')) continue;
-        const cells = line.split('|').map(cell => cell.trim()).filter(Boolean);
-        if (cells.length < 2) continue;
-
-        let rowData = [];
-
-        // Loop through the two cells (English and Spanish)
-        for (let i = 0; i < 2; i++) {
-            const text = cells[i];
-            const isHeader = text.includes('**');
-            
-            if (isHeader) {
-                rowData.push({
-                    v: text.replace(/\*\*/g, ''),
-                    t: 's',
-                    s: { font: headerFont, border: border }
-                });
-            } else {
-                // Build Rich Text object for regular cells
-                const parts = text.split(/\*\*(.*?)\*\*/g);
-                const richText = [];
-                const color = i === 0 ? englishColor : spanishColor;
-
-                parts.forEach((part, index) => {
-                    if (!part) return; // Skip empty strings
-                    const isBold = index % 2 === 1;
-                    richText.push({
-                        t: part, // 't' for text
-                        f: { // 'f' for font
-                           sz: 12,
-                           bold: isBold,
-                           color: isBold ? color : defaultFont.color
-                        }
+        markdown.split('\n').filter(line=>line.startsWith('|')).forEach(line=>{
+            if (line.includes('---')) return;
+            const cells = line.split('|').map(cell=>cell.trim()).filter(Boolean);
+            if (cells.length < 2) return;
+            let rowData = [];
+            for (let i = 0; i < 2; i++) {
+                const text = cells[i], isHeader = text.includes('**');
+                if (isHeader) {
+                    rowData.push({ v: text.replace(/\*\*/g,''), t:'s', s: { font: headerFont, border: border } });
+                } else {
+                    const richText = []; const color = i===0?englishColor:spanishColor;
+                    text.split(/\*\*(.*?)\*\*/g).forEach((part,index)=>{
+                        if(!part) return;
+                        richText.push({ t: part, f: { sz: 12, bold: index % 2 === 1, color: index % 2 === 1 ? color : defaultFont.color }});
                     });
-                });
-                rowData.push({ v: richText, t: 'r', s: { border: border } });
+                    rowData.push({ v: richText, t: 'r', s: { border: border } });
+                }
             }
-        }
-        data.push(rowData);
-    }
-    
-    // Convert the structured data array to a worksheet
-    XLSX.utils.sheet_add_aoa(ws, data, { origin: "A1" });
-    
-    // Set column widths to be nice and wide
-    ws['!cols'] = [{ wch: 70 }, { wch: 70 }];
-    
-    XLSX.utils.book_append_sheet(wb, ws, "Vocabulary");
-    const topic = document.getElementById('topic').value.trim() || 'export';
-    const level = document.getElementById('level').value;
-    XLSX.writeFile(wb, `${topic}_L${level}.xlsx`);
+            data.push(rowData);
+        });
+        
+        XLSX.utils.sheet_add_aoa(ws, data, { origin: "A1" });
+        ws['!cols'] = [{ wch: 70 }, { wch: 70 }];
+        XLSX.utils.book_append_sheet(wb, ws, "Vocabulary");
+        XLSX.writeFile(wb, `${topicEl.value}_L${levelEl.value}.xlsx`);
+        statusEl.textContent = "Excel file download started.";
+      } catch (e) { statusEl.textContent = "Failed to create Excel file."; console.error(e); }
+    });
+  }
+
+  // --- Conversation Generator Logic ---
+  function setupConvoGenerator() {
+      const outputDiv = $("output"), genBtn = $("convoGen"), statusEl = $("status");
+      genBtn.addEventListener('click', async () => {
+        const payload = {
+            toolType: 'conversation',
+            topic: $('convoTopic').value.trim(), level: $('convoLevel').value,
+            vocab: $('convoVocab').value.trim(), numConvos: $('numConvos').value,
+            numSpeakers: $('numSpeakers').value, turns: $('turns').value,
+            tone: $('tone').value,
+        };
+        if (!payload.topic) { statusEl.textContent = "Please enter a topic."; return; }
+        
+        try {
+            outputDiv.innerHTML = '<p style="color: var(--muted-text);">Generating conversation(s)...</p>';
+            statusEl.textContent = "Connecting to AI..."; genBtn.disabled = true;
+            const response = await fetch('/api/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.message || "Server error.");
+            
+            outputDiv.innerHTML = marked.parse(data.result);
+            statusEl.textContent = "Generation complete!";
+        } catch(e) {
+            outputDiv.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${e.message}</p>`; statusEl.textContent = "Failed to generate.";
+        } finally { genBtn.disabled = false; }
+      });
   }
 
   window.addEventListener('DOMContentLoaded', init);
