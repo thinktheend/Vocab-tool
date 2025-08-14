@@ -3,24 +3,114 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FCS Student Vocab Creator — BOTH Output Mode (White BG • v6)</title>
+<title>FCS Student Vocab Creator — Preset Totals + Prompt Fix</title>
 <style>
-  :root{ --bg:#ffffff; --ink:#111827; --muted:#6b7280; --accent:#2563eb; --border:#e5e7eb;}
-  /* ... all your CSS from the original file ... */
+  :root { --bg:#ffffff; --fg:#111; --muted:#666; --border:#d0d0d0; --accent:#0057d9; }
+  html, body { background: var(--bg); color: var(--fg); font-family: Calibri, Arial, sans-serif; font-size: 15px; margin:0; }
+  .wrap { max-width: 100%; margin: 28px auto; padding: 0 16px; }
+  h1 { font-size: 22px; margin: 0 0 14px; }
+  .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; align-items: end; }
+  label { font-weight: 600; font-size: 13px; }
+  input[type="text"], select, input[type="number"] {
+    width: 100%; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: #fff;
+  }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .card { border:1px solid var(--border); border-radius: 10px; padding: 12px; background:#fff; }
+  .btns { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+  button {
+    padding: 10px 14px; border-radius: 8px; border:1px solid var(--border); background:#f6f8fb;
+    cursor: pointer; font-weight: 600;
+  }
+  button.primary { background: #0b5cff; color: #fff; border-color: #0b5cff; }
+  textarea { width: 100%; min-height: 420px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px; }
+  .pill { display:inline-flex; align-items:center; gap:8px; padding:8px 10px; border:1px solid var(--border); border-radius:999px; background:#fff; }
+  .row { margin: 10px 0 4px; }
+  .line { height:1px; background: var(--border); margin: 14px 0; }
+  .six { grid-column: span 6; }
+  .twelve { grid-column: span 12; }
+  @media (max-width: 860px){ .six, .twelve { grid-column: span 12; } }
+  .small { font-size: 12px; color: var(--muted); }
+  .preset-line { font-size:12px; color:#333; margin-top:4px; }
+  .muted { color:#999; }
 </style>
 </head>
 <body>
-<noscript>
-  <div style="background:#fee2e2;color:#991b1b;padding:10px 14px;text-align:center;">
-    This page needs JavaScript enabled. Please open locally in a browser (Chrome/Edge/Firefox) and allow scripts.
+<div class="wrap">
+  <h1>FCS Student Vocab Creator — Level Presets + Unified Prompt</h1>
+  <div class="card">
+    <div class="grid">
+      <div class="six">
+        <label for="topic">Topic</label>
+        <input id="topic" type="text" placeholder="e.g., camping, dance, travel" value="dance">
+      </div>
+      <div class="six">
+        <label for="level">Level</label>
+        <select id="level">
+          <option value="1" selected>Level 1 — Survival</option>
+          <option value="2">Level 2 — Beginner</option>
+          <option value="3">Level 3 — Intermediate</option>
+          <option value="4">Level 4 — Conversational</option>
+          <option value="5">Level 5 — Fluent</option>
+        </select>
+      </div>
+      <div class="twelve"></div>
+      <div class="six">
+        <label for="tmode">Total Words Mode</label>
+        <select id="tmode">
+          <option value="default" selected>Preset by Level</option>
+          <option value="custom">Custom (enable inputs)</option>
+        </select>
+        <div id="presetText" class="preset-line"></div>
+        <div class="hint">Counts only Nouns + Verbs + Descriptive Words.</div>
+      </div>
+      <div class="six">
+        <div class="grid">
+          <div class="six">
+            <label for="tmin">Total Min</label>
+            <input id="tmin" type="number" min="1" value="35" disabled>
+          </div>
+          <div class="six">
+            <label for="tmax">Total Max</label>
+            <input id="tmax" type="number" min="1" value="55" disabled>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="line"></div>
+
+    <div class="grid">
+      <div class="six">
+        <span class="pill">
+          <input type="checkbox" id="makeInline" checked>
+          <label for="makeInline" style="margin:0;">Create a vocabulary list in ChatGPT (Inline)</label>
+        </span>
+      </div>
+      <div class="six">
+        <span class="pill">
+          <input type="checkbox" id="makeHtml" checked>
+          <label for="makeHtml" style="margin:0;">Create an HTML file</label>
+        </span>
+      </div>
+    </div>
+
+    <div class="btns">
+      <button id="gen" class="primary">Generate</button>
+      <button id="copy">Copy</button>
+      <button id="selftest">Self‑Test</button>
+    </div>
+    <div id="status" class="small" aria-live="polite"></div>
   </div>
-</noscript>
-<header>
-  <!-- ... all your header HTML ... -->
-</header>
-<main class="card">
-  <!-- ... all your main form HTML ... -->
-</main>
+
+  <div class="line"></div>
+
+  <div class="card">
+    <label for="output">Generated Vocabulary</label>
+    <textarea id="output" spellcheck="false" placeholder="Your AI-generated vocabulary will appear here..."></textarea>
+  </div>
+</div>
+
 <script>
 "use strict";
 (function(){
@@ -28,65 +118,95 @@
 
   function init(){
     const out = $("output");
-    const gen = $("gen");
+    const gen = $("gen"); // This ID matches the button in the HTML above
     const copy = $("copy");
     const status = $("status");
     const topicEl = $("topic");
     const levelEl = $("level");
+    const tmodeEl = $("tmode"); // Added this to prevent other errors
+    
+    // Add event listeners ONLY if the elements were found
+    if (gen) {
+        gen.addEventListener('click', async () => {
+          const topic = topicEl.value.trim();
+          const level = levelEl.value;
 
-    gen.addEventListener('click', async () => {
-      const topic = topicEl.value.trim();
-      const level = levelEl.value;
+          if (!topic) {
+            status.textContent = "Please enter a topic.";
+            return;
+          }
+          
+          try {
+            out.value = "Generating your vocabulary list... this can take up to 30 seconds. Please wait.";
+            status.textContent = "Connecting to AI...";
+            gen.disabled = true;
 
-      if (!topic) {
-        status.textContent = "Please enter a topic.";
-        return;
-      }
-      
-      try {
-        // Update UI to show loading state
-        out.value = "Generating your vocabulary list... please wait.";
-        status.textContent = "Connecting to AI...";
-        gen.disabled = true;
+            const response = await fetch('/api/generate', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ topic, level }),
+            });
 
-        // Call our new backend function
-        const response = await fetch('/api/generate', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ topic, level }),
+            const data = await response.json();
+            if (!response.ok) {
+              throw new Error(data.message || "An unknown error occurred on the server.");
+            }
+            
+            out.value = data.result;
+            status.textContent = "Generation complete!";
+
+          } catch (e) {
+            out.value = "Error: " + (e.message || String(e));
+            status.textContent = "Failed to generate.";
+            console.error(e);
+          } finally {
+            gen.disabled = false;
+          }
         });
+    }
 
-        const data = await response.json();
+    if (copy) {
+        copy.addEventListener('click', () => {
+          out.focus();
+          out.select();
+          try { 
+            document.execCommand('copy'); 
+            if(status) status.textContent = "Copied to clipboard."; 
+          } catch(e) {
+            status.textContent = "Failed to copy.";
+          }
+        });
+    }
 
-        if (!response.ok) {
-          throw new Error(data.message || "An unknown error occurred.");
-        }
-        
-        // Success! Display the result from the AI
-        out.value = data.result;
-        status.textContent = "Generation complete!";
-
-      } catch (e) {
-        out.value = "Error: " + (e.message || String(e));
-        status.textContent = "Failed to generate.";
-        console.error(e);
-      } finally {
-        // Re-enable the generate button
-        gen.disabled = false;
-      }
-    });
-
-    copy.addEventListener('click', () => {
-      out.focus(); out.select();
-      try { 
-        document.execCommand('copy'); 
-        if(status) status.textContent = "Copied to clipboard."; 
-      } catch(e) {
-        status.textContent = "Failed to copy.";
-      }
-    });
+    if (tmodeEl) {
+        // I've left the logic for updating the totals UI as it was, since it depends on the HTML
+        const updateTotalsUI = () => {
+            const mode = tmodeEl.value;
+            const lvl = levelEl.value;
+            const minEl = $("tmin");
+            const maxEl = $("tmax");
+            const isCustom = (mode === "custom");
+            const presetRange = (levelVal) => {
+                const lvlStr = String(levelVal);
+                if (lvlStr === "1") return {min:35, max:55};
+                if (lvlStr === "2") return {min:60, max:85};
+                if (lvlStr === "3") return {min:90, max:120};
+                if (lvlStr === "4") return {min:120, max:180};
+                if (lvlStr === "5") return {min:160, max:240};
+                return {min:120, max:180};
+            };
+            const range = presetRange(lvl);
+            if (!isCustom) {
+                minEl.value = range.min;
+                maxEl.value = range.max;
+            }
+            minEl.disabled = !isCustom;
+            maxEl.disabled = !isCustom;
+        };
+        tmodeEl.addEventListener('change', updateTotalsUI);
+        levelEl.addEventListener('change', updateTotalsUI);
+        updateTotalsUI(); // Run once on load
+    }
   }
 
   window.addEventListener('DOMContentLoaded', init);
