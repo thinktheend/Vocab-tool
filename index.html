@@ -114,13 +114,22 @@
     });
   }
 
+  // *** THIS IS THE ONLY FUNCTION THAT HAS CHANGED ***
   const copyToClipboard = (text, statusEl) => {
     if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
+    const tempTextArea = document.createElement('textarea');
+    tempTextArea.value = text;
+    tempTextArea.style.position = 'fixed';
+    tempTextArea.style.left = '-9999px';
+    document.body.appendChild(tempTextArea);
+    tempTextArea.select();
+    try {
+      document.execCommand('copy');
       statusEl.textContent = "Copied to clipboard!";
-    }, () => {
+    } catch (err) {
       statusEl.textContent = "Copy failed. Please use Ctrl+C.";
-    });
+    }
+    document.body.removeChild(tempTextArea);
   };
   
   function setupVocabGenerator() {
@@ -207,8 +216,8 @@
     const wb=XLSX.utils.book_new();
     const data=[]; let currentSpeaker="";
     markdown.split('\n').forEach(line=>{
-        if(line.startsWith('#')||line.trim()==='') return; // Skip headers/blank lines
-        const match = line.match(/^(.*?):(.*)/); // Speaker: Dialogue
+        if(line.startsWith('#')||line.trim()==='') return;
+        const match = line.match(/^(.*?):(.*)/);
         if(match){ currentSpeaker = match[1].trim(); data.push({ "Speaker": currentSpeaker, "Line": match[2].trim() });
         } else if (line.startsWith('(EN)')) { data.push({ "Speaker": "Translation", "Line": line.substring(4).trim() }); }
     });
