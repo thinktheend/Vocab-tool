@@ -94,7 +94,7 @@
     const minTotalEl = $("minTotal"), maxTotalEl = $("maxTotal");
 
     totalsModeEl.addEventListener('change', () => {
-        customTotalsEl.style.display = (totalsModeEl.value === 'custom') ? 'block' : 'none';
+        customTotalsEl.style.display = (totalsModeEl.value === 'custom') ? 'grid' : 'none';
     });
 
     genBtn.addEventListener('click', async () => {
@@ -105,29 +105,24 @@
           minTotal: minTotalEl.value,
           maxTotal: maxTotalEl.value
       };
-
       if (!payload.topic) { statusEl.textContent = "Please enter a topic."; return; }
       
       try {
         outputDiv.innerHTML = '<p style="color: var(--muted-text);">Generating your vocabulary list...</p>';
         statusEl.textContent = "Connecting to AI...";
         genBtn.disabled = true; excelBtn.disabled = true;
-
         const response = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || "An unknown server error occurred.");
         
         lastResultMarkdown = data.result;
         outputDiv.innerHTML = marked.parse(lastResultMarkdown);
-        
         statusEl.textContent = "Generation complete!";
         excelBtn.disabled = false;
-
       } catch (e) {
         outputDiv.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${e.message || String(e)}</p>`;
         statusEl.textContent = "Failed to generate.";
@@ -138,13 +133,9 @@
 
     excelBtn.addEventListener('click', () => {
       if (!lastResultMarkdown) { statusEl.textContent = "Generate a list first."; return; }
-      statusEl.textContent = "Creating Excel file...";
+      statusEl.textContent = "Creating formatted Excel file...";
       try {
-        const wb = XLSX.utils.book_new();
-        const sheetData = parseMarkdownToRichTextData(lastResultMarkdown);
-        const ws = XLSX.utils.aoa_to_sheet(sheetData);
-        XLSX.utils.book_append_sheet(wb, ws, "Vocabulary");
-        XLSX.writeFile(wb, `${topicEl.value.trim()}_L${levelEl.value}.xlsx`);
+        generateAndDownloadExcel(lastResultMarkdown);
         statusEl.textContent = "Excel file download started.";
       } catch (e) {
           statusEl.textContent = "Failed to create Excel file."; console.error(e);
@@ -152,47 +143,67 @@
     });
   }
   
-  function parseMarkdownToRichTextData(markdown) {
-    const lines = markdown.split('\n').filter(line => line.startsWith('|'));
-    const data = [];
+  function generateAndDownloadExcel(markdown) {
+    const wb = XLSX.utils.book_new();
+    const ws = {}; // We build the worksheet object from scratch
+    
+    const borderStyle = { style: 'thin', color: { auto: 1 } };
+    const cellBorder = { top: borderStyle, bottom: borderStyle, left: borderStyle, right: borderStyle };
+    
     const englishColor = { rgb: "0057D9" };
     const spanishColor = { rgb: "C00000" };
+    const defaultColor = { rgb: "000000" };
 
-    const createRichText = (text, color) => {
-        const parts = text.split(/\*\*(.*?)\*\*/g); // Split by bold markdown
-        const richText = [];
-        parts.forEach((part, index) => {
-            if (part) { // Skip empty strings
-                const isBold = index % 2 === 1;
-                richText.push({
-                    text: part,
-                    font: { bold: isBold, color: isBold ? color : {}}
+    const parsedData = markdown.split('\n').filter(line => line.startsWith('|')).map(line => 
+        line.split('|').map(cell => cell.trim()).filter(Boolean)
+    );
+
+    let rowIndex = 0;
+    parsedData.forEach(cells => {
+        if (cells.length < 2 || cells.join('').includes('---')) return;
+
+        const isHeader = cells[0].includes('**');
+        
+        for (let colIndex = 0; colIndex < 2; colIndex++) {
+            const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
+            const cellText = cells[colIndex];
+            
+            if (isHeader) {
+                ws[cellRef] = {
+                    v: cellText.replace(/\*\*/g, ''),
+                    t: 's',
+                    s: { font: { bold: true }, border: cellBorder }
+                };
+            } else {
+                const color = colIndex === 0 ? englishColor : spanishColor;
+                const parts = cellText.split(/\*\*(.*?)\*\*/g);
+                const richText = [];
+                parts.forEach((part, index) => {
+                    if (part) {
+                        const isBold = index % 2 === 1;
+                        richText.push({
+                            text: part,
+                            font: { 
+                                sz: 12,
+                                bold: isBold, 
+                                color: isBold ? color : defaultColor 
+                            }
+                        });
+                    }
                 });
+                ws[cellRef] = { v: richText, t: 'r', s: { border: cellBorder } };
             }
-        });
-        return richText;
-    };
-    
-    for (const line of lines) {
-        if (line.includes('---')) continue; // Skip separator
-
-        const cells = line.split('|').map(cell => cell.trim()).filter(Boolean);
-        if (cells.length < 2) continue;
-
-        // Header and sub-header rows
-        if (cells[0].includes('**')) {
-             data.push([
-                { v: cells[0].replace(/\*\*/g, ''), t: 's', s: { font: { bold: true } } }, 
-                { v: cells[1].replace(/\*\*/g, ''), t: 's', s: { font: { bold: true } } }
-            ]);
-        } else {
-            // Regular data rows with rich text
-            const englishCell = { v: createRichText(cells[0], englishColor), t: 'r' };
-            const spanishCell = { v: createRichText(cells[1], spanishColor), t: 'r' };
-            data.push([englishCell, spanishCell]);
         }
-    }
-    return data;
+        rowIndex++;
+    });
+
+    ws['!cols'] = [{ wch: 65 }, { wch: 65 }]; // Set column widths (in characters)
+    ws['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 1, r: rowIndex - 1 } });
+    
+    XLSX.utils.book_append_sheet(wb, ws, "Vocabulary");
+    const topic = document.getElementById('topic').value.trim() || 'export';
+    const level = document.getElementById('level').value;
+    XLSX.writeFile(wb, `${topic}_L${level}.xlsx`);
   }
 
   window.addEventListener('DOMContentLoaded', init);
