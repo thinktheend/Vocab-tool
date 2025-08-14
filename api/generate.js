@@ -10,14 +10,13 @@ export default async function handler(req, res) {
   }
   
   try {
-    const { topic, level } = req.body;
+    const { topic, level, totalsMode, minTotal, maxTotal } = req.body;
 
-    // We build the full prompt here on the server
     const systemPrompt = "You are an AI assistant that ONLY outputs a single, clean, well-formatted Markdown table for Spanish vocabulary. You MUST NOT include any introductory sentences, conversational text, or explanations before or after the table. Your entire response must be ONLY the Markdown code for the tables.";
-    const userPrompt = buildUserPrompt(topic, level);
+    const userPrompt = buildUserPrompt(topic, level, totalsMode, minTotal, maxTotal);
 
     const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini", // A newer, faster, and more cost-effective model
+      model: "gpt-4o-mini",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
@@ -34,11 +33,17 @@ export default async function handler(req, res) {
 }
 
 // Helper function to build the detailed prompt for the AI
-function buildUserPrompt(topic, level) {
+function buildUserPrompt(topic, level, totalsMode, minTotal, maxTotal) {
   const levelMap = { "1": "Level 1 — Survival", "2": "Level 2 — Beginner", "3": "Level 3 — Intermediate", "4": "Level 4 — Conversational", "5": "Level 5 — Fluent" };
-  const totalsMap = { "1": "35–55", "2": "60-85", "3": "90-120", "4": "120-180", "5": "160-240"};
+  const presets = { "1": "35–55", "2": "60-85", "3": "90-120", "4": "120-180", "5": "160-240"};
   const lvlTxt = levelMap[String(level)] || `Level ${level}`;
-  const totalsLine = `Total Nouns+Verbs+Descriptive words MUST be in the range of ${totalsMap[String(level)] || "120-180"}.`;
+
+  let totalsLine;
+  if (totalsMode === 'custom' && minTotal && maxTotal) {
+    totalsLine = `Total Nouns+Verbs+Descriptive words MUST be in the range of ${minTotal}–${maxTotal}.`;
+  } else {
+    totalsLine = `Total Nouns+Verbs+Descriptive words MUST be in the range of ${presets[String(level)] || "120-180"}.`;
+  }
 
   let p = `Create a vocabulary list in a single Markdown document with multiple tables for the topic "${topic}" at level "${lvlTxt}".\n`;
   p += `RULES:\n`;
