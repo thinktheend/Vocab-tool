@@ -4,126 +4,34 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FCS Student Vocabulary Creator</title>
-<!-- Library for Live Markdown Preview -->
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<!-- Library for Excel File Generation -->
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <style>
   :root { 
-    --bg-color: #f8f9fa; 
-    --text-color: #212529; 
-    --primary-color: #0057d9;
-    --border-color: #dee2e6;
-    --card-bg: #ffffff;
-    --muted-text: #6c757d;
+    --bg-color: #f8f9fa; --text-color: #212529; --primary-color: #0057d9;
+    --border-color: #dee2e6; --card-bg: #ffffff; --muted-text: #6c757d; --red-color: #c00000;
   }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    margin: 0;
-    background-color: var(--bg-color);
-    color: var(--text-color);
-    line-height: 1.6;
-  }
-  .container {
-    max-width: 900px;
-    margin: 30px auto;
-    padding: 0 20px;
-  }
-  h1 {
-    font-size: 28px;
-    text-align: center;
-    margin-bottom: 8px;
-  }
-  .subtitle {
-    text-align: center;
-    color: var(--muted-text);
-    margin-bottom: 30px;
-  }
-  .card {
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 24px;
-    margin-bottom: 24px;
-    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-  }
-  .grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-  }
-  .form-group {
-    display: flex;
-    flex-direction: column;
-  }
-  label {
-    font-weight: 600;
-    margin-bottom: 8px;
-    font-size: 14px;
-  }
-  input, select {
-    padding: 10px;
-    border-radius: 6px;
-    border: 1px solid var(--border-color);
-    font-size: 16px;
-    width: 100%;
-    box-sizing: border-box;
-  }
-  .actions {
-    display: flex;
-    gap: 12px;
-    margin-top: 20px;
-  }
-  button {
-    padding: 12px 20px;
-    border: none;
-    border-radius: 6px;
-    font-size: 16px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background-color 0.2s;
-  }
-  button.primary {
-    background-color: var(--primary-color);
-    color: white;
-  }
-  button.primary:hover { background-color: #0045b0; }
-  button:disabled {
-    background-color: #aeb8c4;
-    cursor: not-allowed;
-  }
-  #status {
-    margin-top: 15px;
-    color: var(--muted-text);
-    min-height: 1.5em;
-  }
-  /* STYLES FOR THE NEW LIVE OUTPUT */
-  .output-container {
-    background-color: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 10px 24px;
-    min-height: 200px;
-  }
-  .output-container table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 1.5em;
-    margin-bottom: 1.5em;
-  }
-  .output-container th, .output-container td {
-    border: 1px solid var(--border-color);
-    padding: 12px;
-    text-align: left;
-  }
-  .output-container th {
-    background-color: var(--bg-color);
-    font-weight: 700;
-  }
-  .output-container strong {
-    color: var(--primary-color);
-  }
-  .output-container td:first-child { width: 50%; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;margin:0;background-color:var(--bg-color);color:var(--text-color);line-height:1.6; }
+  .container { max-width:900px; margin:30px auto; padding:0 20px; }
+  h1 { font-size:28px; text-align:center; margin-bottom:8px; }
+  .subtitle { text-align:center; color:var(--muted-text); margin-bottom:30px; }
+  .card { background-color:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:24px;margin-bottom:24px;box-shadow:0 4px 6px rgba(0,0,0,0.05); }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; align-items:flex-end; }
+  .form-group { display:flex; flex-direction:column; }
+  label { font-weight:600; margin-bottom:8px; font-size:14px; }
+  input, select { padding:10px; border-radius:6px; border:1px solid var(--border-color); font-size:16px; width:100%; box-sizing:border-box; }
+  .actions { display:flex; gap:12px; margin-top:20px; }
+  button { padding:12px 20px; border:none; border-radius:6px; font-size:16px; font-weight:600; cursor:pointer; transition:background-color 0.2s; }
+  button.primary { background-color:var(--primary-color); color:white; }
+  button.primary:hover { background-color:#0045b0; }
+  button:disabled { background-color:#aeb8c4; cursor:not-allowed; }
+  #status { margin-top:15px; color:var(--muted-text); min-height:1.5em; }
+  .output-container { background-color:var(--card-bg);border:1px solid var(--border-color);border-radius:8px;padding:10px 24px;min-height:200px; }
+  .output-container table { width:100%; border-collapse:collapse; margin:1.5em 0; }
+  .output-container th, .output-container td { border:1px solid var(--border-color);padding:12px;text-align:left; }
+  .output-container th { background-color:var(--bg-color); font-weight:700; }
+  .output-container strong { color:var(--primary-color); }
+  .output-container td:first-child { width:50%; }
 </style>
 </head>
 <body>
@@ -147,6 +55,19 @@
           <option value="5">Level 5 — Fluent</option>
         </select>
       </div>
+      <div class="form-group">
+        <label for="totalsMode">Totals Mode</label>
+        <select id="totalsMode">
+          <option value="default" selected>Preset by Level</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+      <div class="form-group" id="customTotals" style="display: none;">
+        <div class="grid">
+            <div><label for="minTotal">Min Words</label><input id="minTotal" type="number" value="120"></div>
+            <div><label for="maxTotal">Max Words</label><input id="maxTotal" type="number" value="180"></div>
+        </div>
+      </div>
     </div>
     <div class="actions">
       <button id="gen" class="primary">Generate Vocabulary</button>
@@ -156,9 +77,7 @@
   </div>
   
   <h2 style="margin-top: 40px;">Generated Vocabulary</h2>
-  <div id="output" class="output-container">
-    <p style="color: var(--muted-text);">Your AI-generated vocabulary list will appear here...</p>
-  </div>
+  <div id="output" class="output-container"><p style="color: var(--muted-text);">Your AI-generated vocabulary list will appear here...</p></div>
 </div>
 
 <script>
@@ -166,102 +85,111 @@
 (function(){
   const $ = (id) => document.getElementById(id);
   
-  let lastResultMarkdown = ""; // Variable to store the raw AI response
+  let lastResultMarkdown = ""; 
 
   function init(){
-    const outputDiv = $("output");
-    const genBtn = $("gen");
-    const excelBtn = $("excel");
-    const statusEl = $("status");
-    const topicEl = $("topic");
-    const levelEl = $("level");
+    const outputDiv = $("output"), genBtn = $("gen"), excelBtn = $("excel");
+    const statusEl = $("status"), topicEl = $("topic"), levelEl = $("level");
+    const totalsModeEl = $("totalsMode"), customTotalsEl = $("customTotals");
+    const minTotalEl = $("minTotal"), maxTotalEl = $("maxTotal");
+
+    totalsModeEl.addEventListener('change', () => {
+        customTotalsEl.style.display = (totalsModeEl.value === 'custom') ? 'block' : 'none';
+    });
 
     genBtn.addEventListener('click', async () => {
-      const topic = topicEl.value.trim();
-      const level = levelEl.value;
+      const payload = {
+          topic: topicEl.value.trim(),
+          level: levelEl.value,
+          totalsMode: totalsModeEl.value,
+          minTotal: minTotalEl.value,
+          maxTotal: maxTotalEl.value
+      };
 
-      if (!topic) {
-        statusEl.textContent = "Please enter a topic.";
-        return;
-      }
+      if (!payload.topic) { statusEl.textContent = "Please enter a topic."; return; }
       
       try {
-        outputDiv.innerHTML = '<p style="color: var(--muted-text);">Generating your vocabulary list... this can take up to 30 seconds.</p>';
+        outputDiv.innerHTML = '<p style="color: var(--muted-text);">Generating your vocabulary list...</p>';
         statusEl.textContent = "Connecting to AI...";
-        genBtn.disabled = true;
-        excelBtn.disabled = true;
+        genBtn.disabled = true; excelBtn.disabled = true;
 
         const response = await fetch('/api/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ topic, level }),
+          body: JSON.stringify(payload),
         });
 
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || "An unknown server error occurred.");
         
-        // Store result and render it as HTML table
         lastResultMarkdown = data.result;
-        outputDiv.innerHTML = marked.parse(lastResultMarkdown); // Use the 'marked' library
+        outputDiv.innerHTML = marked.parse(lastResultMarkdown);
         
         statusEl.textContent = "Generation complete!";
-        excelBtn.disabled = false; // Enable download button
+        excelBtn.disabled = false;
 
       } catch (e) {
         outputDiv.innerHTML = `<p style="color: red;"><strong>Error:</strong> ${e.message || String(e)}</p>`;
         statusEl.textContent = "Failed to generate.";
-        console.error(e);
       } finally {
         genBtn.disabled = false;
       }
     });
 
     excelBtn.addEventListener('click', () => {
-      if (!lastResultMarkdown) {
-        statusEl.textContent = "Generate a list first before downloading.";
-        return;
-      }
+      if (!lastResultMarkdown) { statusEl.textContent = "Generate a list first."; return; }
       statusEl.textContent = "Creating Excel file...";
       try {
-        // Convert Markdown to data for Excel
-        const data = parseMarkdownToData(lastResultMarkdown);
-        // Create an Excel workbook
-        const ws = XLSX.utils.json_to_sheet(data);
         const wb = XLSX.utils.book_new();
+        const sheetData = parseMarkdownToRichTextData(lastResultMarkdown);
+        const ws = XLSX.utils.aoa_to_sheet(sheetData);
         XLSX.utils.book_append_sheet(wb, ws, "Vocabulary");
-        // Trigger download
         XLSX.writeFile(wb, `${topicEl.value.trim()}_L${levelEl.value}.xlsx`);
         statusEl.textContent = "Excel file download started.";
       } catch (e) {
-          statusEl.textContent = "Failed to create Excel file.";
-          console.error(e);
+          statusEl.textContent = "Failed to create Excel file."; console.error(e);
       }
     });
   }
   
-  // Helper function to convert simple Markdown table to an array of objects
-  function parseMarkdownToData(markdown) {
+  function parseMarkdownToRichTextData(markdown) {
     const lines = markdown.split('\n').filter(line => line.startsWith('|'));
     const data = [];
-    let headers = [];
+    const englishColor = { rgb: "0057D9" };
+    const spanishColor = { rgb: "C00000" };
 
-    for (let i = 0; i < lines.length; i++) {
-        // Skip the header separator line
-        if (lines[i].includes('---')) continue;
+    const createRichText = (text, color) => {
+        const parts = text.split(/\*\*(.*?)\*\*/g); // Split by bold markdown
+        const richText = [];
+        parts.forEach((part, index) => {
+            if (part) { // Skip empty strings
+                const isBold = index % 2 === 1;
+                richText.push({
+                    text: part,
+                    font: { bold: isBold, color: isBold ? color : {}}
+                });
+            }
+        });
+        return richText;
+    };
+    
+    for (const line of lines) {
+        if (line.includes('---')) continue; // Skip separator
 
-        const cells = lines[i].split('|').map(cell => cell.trim()).filter(Boolean);
+        const cells = line.split('|').map(cell => cell.trim()).filter(Boolean);
         if (cells.length < 2) continue;
 
-        if (i === 0) { // First line is always the header
-            headers = cells;
+        // Header and sub-header rows
+        if (cells[0].includes('**')) {
+             data.push([
+                { v: cells[0].replace(/\*\*/g, ''), t: 's', s: { font: { bold: true } } }, 
+                { v: cells[1].replace(/\*\*/g, ''), t: 's', s: { font: { bold: true } } }
+            ]);
         } else {
-            // Check for section headers (e.g., | **Nouns** | **Sustantivos** |)
-            if(cells[0].includes('**')) {
-                data.push({ [headers[0]]: '', [headers[1]]: '' }); // Add a blank row for spacing
-                data.push({ [headers[0]]: cells[0].replace(/\*\*/g, ''), [headers[1]]: cells[1].replace(/\*\*/g, '') });
-            } else {
-                 data.push({ [headers[0]]: cells[0], [headers[1]]: cells[1] });
-            }
+            // Regular data rows with rich text
+            const englishCell = { v: createRichText(cells[0], englishColor), t: 'r' };
+            const spanishCell = { v: createRichText(cells[1], spanishColor), t: 'r' };
+            data.push([englishCell, spanishCell]);
         }
     }
     return data;
