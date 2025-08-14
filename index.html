@@ -143,62 +143,68 @@
     });
   }
   
+  // *** MAJOR REWRITE OF THIS FUNCTION FOR PROPER STYLING ***
   function generateAndDownloadExcel(markdown) {
     const wb = XLSX.utils.book_new();
-    const ws = {}; // We build the worksheet object from scratch
-    
-    const borderStyle = { style: 'thin', color: { auto: 1 } };
-    const cellBorder = { top: borderStyle, bottom: borderStyle, left: borderStyle, right: borderStyle };
-    
+    const ws = {}; 
+    const data = []; // This will hold our final array of arrays for the sheet
+
+    // --- Define Styles ---
+    const border = { top: {style:"thin"}, bottom: {style:"thin"}, left: {style:"thin"}, right: {style:"thin"} };
+    const headerFont = { sz: 12, bold: true };
     const englishColor = { rgb: "0057D9" };
     const spanishColor = { rgb: "C00000" };
-    const defaultColor = { rgb: "000000" };
+    const defaultFont = { sz: 12, color: { rgb: "000000" }};
 
-    const parsedData = markdown.split('\n').filter(line => line.startsWith('|')).map(line => 
-        line.split('|').map(cell => cell.trim()).filter(Boolean)
-    );
+    const lines = markdown.split('\n').filter(line => line.startsWith('|'));
 
-    let rowIndex = 0;
-    parsedData.forEach(cells => {
-        if (cells.length < 2 || cells.join('').includes('---')) return;
+    for (const line of lines) {
+        if (line.includes('---')) continue;
+        const cells = line.split('|').map(cell => cell.trim()).filter(Boolean);
+        if (cells.length < 2) continue;
 
-        const isHeader = cells[0].includes('**');
-        
-        for (let colIndex = 0; colIndex < 2; colIndex++) {
-            const cellRef = XLSX.utils.encode_cell({ r: rowIndex, c: colIndex });
-            const cellText = cells[colIndex];
+        let rowData = [];
+
+        // Loop through the two cells (English and Spanish)
+        for (let i = 0; i < 2; i++) {
+            const text = cells[i];
+            const isHeader = text.includes('**');
             
             if (isHeader) {
-                ws[cellRef] = {
-                    v: cellText.replace(/\*\*/g, ''),
+                rowData.push({
+                    v: text.replace(/\*\*/g, ''),
                     t: 's',
-                    s: { font: { bold: true }, border: cellBorder }
-                };
-            } else {
-                const color = colIndex === 0 ? englishColor : spanishColor;
-                const parts = cellText.split(/\*\*(.*?)\*\*/g);
-                const richText = [];
-                parts.forEach((part, index) => {
-                    if (part) {
-                        const isBold = index % 2 === 1;
-                        richText.push({
-                            text: part,
-                            font: { 
-                                sz: 12,
-                                bold: isBold, 
-                                color: isBold ? color : defaultColor 
-                            }
-                        });
-                    }
+                    s: { font: headerFont, border: border }
                 });
-                ws[cellRef] = { v: richText, t: 'r', s: { border: cellBorder } };
+            } else {
+                // Build Rich Text object for regular cells
+                const parts = text.split(/\*\*(.*?)\*\*/g);
+                const richText = [];
+                const color = i === 0 ? englishColor : spanishColor;
+
+                parts.forEach((part, index) => {
+                    if (!part) return; // Skip empty strings
+                    const isBold = index % 2 === 1;
+                    richText.push({
+                        t: part, // 't' for text
+                        f: { // 'f' for font
+                           sz: 12,
+                           bold: isBold,
+                           color: isBold ? color : defaultFont.color
+                        }
+                    });
+                });
+                rowData.push({ v: richText, t: 'r', s: { border: border } });
             }
         }
-        rowIndex++;
-    });
-
-    ws['!cols'] = [{ wch: 65 }, { wch: 65 }]; // Set column widths (in characters)
-    ws['!ref'] = XLSX.utils.encode_range({ s: { c: 0, r: 0 }, e: { c: 1, r: rowIndex - 1 } });
+        data.push(rowData);
+    }
+    
+    // Convert the structured data array to a worksheet
+    XLSX.utils.sheet_add_aoa(ws, data, { origin: "A1" });
+    
+    // Set column widths to be nice and wide
+    ws['!cols'] = [{ wch: 70 }, { wch: 70 }];
     
     XLSX.utils.book_append_sheet(wb, ws, "Vocabulary");
     const topic = document.getElementById('topic').value.trim() || 'export';
