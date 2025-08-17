@@ -1,9 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FCS AI Generator Suite</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FCS AI Generator Suite</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
   :root { --bg:#ffffff; --fg:#111; --muted:#666; --border:#d0d0d0; --accent:#0057d9; --primary-blue:#0b5cff; }
@@ -100,41 +98,30 @@
     const $ = (id) => document.getElementById(id);
     const API_URL = "/api/index"; 
 
-    // --- Tab Switching ---
     (function initTabs(){
         const tabs=document.querySelectorAll('.fcs-tab-btn'),gens=document.querySelectorAll('.fcs-generator');
         tabs.forEach(tab=>{tab.addEventListener('click',()=>{const t=tab.id.replace('tab-','gen-');tabs.forEach(t=>t.classList.remove('primary'));tab.classList.add('primary');gens.forEach(g=>{g.style.display=g.id===t?'block':'none';})})});
     })();
 
-    // --- CORE AI CALL ---
-    async function generateResult(prompt, buttonEl, statusEl, outputEl) {
+    async function generateResult(payload, buttonEl, statusEl, outputEl) {
         buttonEl.disabled=true; statusEl.textContent="Generating... This can take up to a minute...";
         outputEl.innerHTML="<h4>Please wait. The AI is crafting your content...</h4>";
         try {
-            const response = await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt})});
+            const response = await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:payload})});
             const result = await response.json();
             if(!response.ok)throw new Error(result.details||result.error||"An unknown server error.");
-            
-            let htmlContent = result.content;
-            if (htmlContent.includes("| --- |")) {
-                outputEl.innerHTML = marked.parse(htmlContent).replace(/\| \*\*(.*?)\*\* \| \*\*(.*?)\*\* \|/g, '<tr><td colspan="2" class="subcategory">$1 / $2</td></tr>');
-            } else {
-                outputEl.innerHTML = htmlContent;
-            }
+            outputEl.innerHTML = result.content;
             statusEl.textContent="Generation successful!";
         } catch(error){console.error("Error:",error);outputEl.innerHTML=`<p style="color:red;"><strong>Error:</strong> Failed to generate content. Details: ${error.message}</p>`;statusEl.textContent="An error occurred.";}
         finally{buttonEl.disabled=false;}
     }
 
-    // --- COPY HELPER ---
     function copyToClipboard(outputEl,statusEl){if(!outputEl.innerHTML||outputEl.innerText.includes("will appear here")){statusEl.textContent="Nothing to copy.";return}navigator.clipboard.writeText(outputEl.innerHTML).then(()=>statusEl.textContent="Copied!",()=>statusEl.textContent="Copy failed.")}
     
-    // --- VOCABULARY GENERATOR ---
     (function setupVocab(){
         const genBtn=$('v-gen'),copyBtn=$('v-copy'),statusEl=$('v-status'),outputEl=$('v-output'),levelEl=$("v-level"),tmodeEl=$("v-tmode"),tminEl=$("v-tmin"),tmaxEl=$("v-tmax"),presetTextEl=$("v-presetText"),topicEl=$("v-topic"),vocabIncludeEl=$("v-vocab-include");
         const presetRanges={"1":{min:35,max:55},"2":{min:60,max:85},"3":{min:90,max:120},"4":{min:120,max:180},"5":{min:160,max:240}};
         const levelTexts={"1":"Level 1—Survival","2":"Level 2—Beginner","3":"Level 3—Intermediate","4":"Level 4—Conversational","5":"Level 5—Fluent"};
-        
         function updateUI(){
             const isCustom=tmodeEl.value==='custom'; const range=presetRanges[levelEl.value];
             tminEl.disabled=!isCustom; tmaxEl.disabled=!isCustom;
@@ -144,35 +131,54 @@
         tmodeEl.addEventListener('change',updateUI);levelEl.addEventListener('change',updateUI);
         genBtn.addEventListener('click', () => {
             if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
-            const prompt = `OUTPUT CONTRACT: Produce a COMPLETE, EXCEL-READY VOCABULARY LESSON as a single HTML file with embedded styles. Do not include markdown or any commentary. Adhere to all rules from the FCS VOCABULARY CREATOR documentation exactly. Pay close attention to word counts, grammar for the specified level, and the required sentence structures (e.g., "Here is the..." for nouns). The output MUST be ready to display directly in a browser. Here is the User Input:\n\nTopic: ${topicEl.value}\nLevel: ${levelEl.value}\nTotal Words Mode: ${tmodeEl.value}\nMin Words: ${tminEl.value}\nMax Words: ${tmaxEl.value}\nVocabulary to Include: ${vocabIncludeEl.value || 'None'}`;
-            generateResult(prompt, genBtn, statusEl, outputEl);
+            const payload = {
+                toolType: "vocabulary",
+                topic: topicEl.value,
+                level: levelEl.value,
+                tmode: tmodeEl.value,
+                tmin: tminEl.value,
+                tmax: tmaxEl.value,
+                vocab_include: vocabIncludeEl.value || 'None'
+            };
+            generateResult(payload, genBtn, statusEl, outputEl);
         });
-        copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
-        updateUI();
+        copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));updateUI();
     })();
     
-    // --- CONVERSATION GENERATOR ---
     (function setupConvo(){
         const genBtn=$('c-gen'),copyBtn=$('c-copy'),statusEl=$('c-status'),outputEl=$('c-output');
         genBtn.addEventListener('click', ()=>{
             if(!$('c-topic').value.trim()){statusEl.textContent="Please enter a topic.";return;}
-            const prompt = `OUTPUT CONTRACT: You must respond with a single, complete HTML file with embedded styles. Do not include markdown or any commentary. Adhere to all rules from the FCS CONVERSATION CREATOR documentation exactly. Key Rules: Format conversations and practices in two columns. Bold and color vocabulary. Keep grammar strictly within the specified level. Use the ________ (ENGLISH) format for Fill-in-the-Blanks. The output MUST be ready to display directly in a browser. Here is the User Input:\n\nTopic: ${$('c-topic').value}\nLevel: ${$('c-level').value}\nVocabulary List: ${$('c-vocab').value||"auto"}\nNum Convos: ${$('c-numConvos').value}\nNum Speakers: ${$('c-numSpeakers').value}\nAdd FIB: ${$('c-addFib').value}\nFIB Focus: ${$('c-fibFocus').value}\nTone: ${$('c-tone').value}`;
-            generateResult(prompt, genBtn, statusEl, outputEl);
+            const payload = {
+                toolType: "conversation",
+                topic: $('c-topic').value,
+                level: $('c-level').value,
+                vocab: $('c-vocab').value||"auto",
+                numConvos: $('c-numConvos').value,
+                numSpeakers: $('c-numSpeakers').value,
+                addFib: $('c-addFib').value,
+                fibFocus: $('c-fibFocus').value,
+                tone: $('c-tone').value
+            };
+            generateResult(payload, genBtn, statusEl, outputEl);
         });
         copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     })();
 
-    // --- TEST GENERATOR ---
     (function setupTest(){
         const genBtn=$('t-gen'),copyBtn=$('t-copy'),statusEl=$('t-status'),outputEl=$('t-output');
         genBtn.addEventListener('click', ()=>{
             if(!$('t-vocab').value.trim()){statusEl.textContent="Please paste a vocabulary list.";return;}
-            const prompt = `OUTPUT CONTRACT: Create a 3-part Spanish test. Produce the output as a single HTML file with embedded styles. Do not include markdown or commentary. Adhere to all rules from the FCS TEST CREATOR documentation precisely. Key Rules: Return ONLY raw HTML. Structure MUST be Part 1 (ES->EN), Part 2 (EN->ES), Part 3 (Oral Prompts). Use only the provided vocabulary and level-specific grammar. Place answer keys at the very end if requested. The output MUST be ready to display directly in a browser.\n\nLevel: ${$('t-level').value}\nInclude Answer Keys: ${$('t-anskeys').checked}\nVocabulary List:\n${$('t-vocab').value}`;
-            generateResult(prompt, genBtn, statusEl, outputEl);
+            const payload = {
+                toolType: "test",
+                level: $('t-level').value,
+                keys: $('t-anskeys').checked,
+                vocab: $('t-vocab').value
+            };
+            generateResult(payload, genBtn, statusEl, outputEl);
         });
         copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     })();
-    
 })();
 </script>
 
