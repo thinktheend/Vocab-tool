@@ -22,21 +22,24 @@ def handler():
             if not api_key:
                 return add_cors_headers(jsonify({"error": "Server configuration error."})), 500
             
-            # The frontend now sends one key: "prompt", which is a long, formatted string.
             data = request.get_json()
-            prompt_string = data.get("prompt")
+            prompt = data.get("prompt")
             
             client = OpenAI(api_key=api_key)
             completion = client.chat.completions.create(
-                model="gpt-4o", # Upgraded for best results with complex rules
+                model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are an expert assistant for the Fast Conversational Spanish program. Your task is to generate educational content. You must follow all rules provided by the user precisely. Your final output must be ONLY the raw content (HTML or Markdown) as requested, with absolutely no commentary, greetings, or extra text like ```html."},
-                    {"role": "user", "content": prompt_string}
+                    {"role": "system", "content": "You are a helpful assistant for the Fast Conversational Spanish program. You must follow all rules and formatting instructions exactly. Your final output must be ONLY the raw content (HTML or Markdown) as requested, with absolutely no commentary or extra text."},
+                    {"role": "user", "content": json.dumps(prompt)}
                 ]
             )
             
             ai_content = completion.choices[0].message.content
             
+            # The AI might return the content wrapped in ```html ... ```, so we clean it.
+            if ai_content.strip().startswith("```html"):
+                ai_content = ai_content.strip()[7:-3].strip()
+
             response = jsonify({"content": ai_content})
             response.status_code = 200
 
