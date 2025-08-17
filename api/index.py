@@ -1,52 +1,56 @@
 import os
 import json
-from flask import Flask, request, jsonify
+from http.server import BaseHTTPRequestHandler
 from openai import OpenAI
 
-app = Flask(__name__)
+# This is a standard Python serverless function for Vercel, without Flask.
+class handler(BaseHTTPRequestHandler):
 
-def add_cors_headers(response):
-    response.headers.set('Access-Control-Allow-Origin', '*')
-    response.headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS')
-    response.headers.set('Access-Control-Allow-Headers', 'Content-Type')
-    return response
-
-@app.route('/api/index', methods=['POST', 'OPTIONS'])
-def handler():
-    if request.method == 'OPTIONS':
-        return add_cors_headers(app.make_response(('', 204)))
-
-    if request.method == 'POST':
+    def do_POST(self):
         try:
+            # --- Read the request from the frontend ---
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data)
+            prompt = data.get("prompt")
+
+            # --- Get the OpenAI API Key from Vercel's environment variables ---
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
-                return add_cors_headers(jsonify({"error": "Server configuration error."})), 500
-            
-            data = request.get_json()
-            prompt = data.get("prompt")
-            
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": "Server configuration error."}).encode('utf-8'))
+                return
+
+            # --- Call the OpenAI API ---
             client = OpenAI(api_key=api_key)
             completion = client.chat.completions.create(
-                model="gpt-4o", # Upgraded for best results with complex rules
+                model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are an expert assistant for the Fast Conversational Spanish program. You must follow all rules and formatting instructions exactly as provided in the user's prompt. Your final output must be ONLY the raw content (HTML or Markdown) as requested, with absolutely no commentary, greetings, or extra text like ```html or ```markdown."},
+                    {"role": "system", "content": "You are an expert assistant for the Fast Conversational Spanish program. You must follow all rules provided by the user precisely. Your final output must be ONLY the raw content (HTML or Markdown) as requested, with absolutely no commentary or extra text like ```html."},
                     {"role": "user", "content": prompt}
                 ]
             )
-            
+
+            # --- Process and send the response back to the frontend ---
             ai_content = completion.choices[0].message.content
             
-            # Clean up the response in case the AI wraps it in code blocks
-            if ai_content.strip().startswith("```"):
-                lines = ai_content.strip().split('\n')
-                ai_content = '\n'.join(lines[1:-1])
-
-            response = jsonify({"content": ai_content})
-            response.status_code = 200
+            # Create a JSON object to send back, as the frontend expects
+            response_payload = {"content": ai_content}
+            
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            # Add CORS headers to allow the Kajabi/HTML page to access the response
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(response_payload).encode('utf-8'))
 
         except Exception as e:
-            print(f"AN ERROR OCCURRED: {e}") 
-            response = jsonify({"error": "An internal server error occurred.", "details": str(e)})
-            response.status_code = 500
-            
-        return add_cors_headers(response)
+            # Handle any crashes and send back a useful error message
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps({"error": "An internal server error occurred.", "details": str(e)}).encode('utf-8'))
+        return
