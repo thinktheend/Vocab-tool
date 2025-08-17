@@ -26,10 +26,13 @@
   .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top:20px; }
   .status { margin-top:10px; min-height:1.5em; text-align:left; color:var(--muted); font-size:13px; }
   .output-container { border:1px solid var(--border); border-radius:12px; padding:24px; background:#fdfdfd; min-height: 200px; margin-top:20px; }
-  .output-container h1, .output-container h2 { text-align: center; }
+  .output-container h1, .output-container h2 { text-align: center; color: #000 !important; }
+  .output-container h1 { font-size: 20px; } .output-container h2 { font-size: 18px; border: none; margin-top:24px; background: #f0f0f0; padding:8px; border-radius: 5px; }
   .output-container table { width:100%; border-collapse: collapse; margin-top: 12px; font-size:10pt;}
   .output-container th, .output-container td { border:1px solid #ccc; padding:6px; vertical-align:top; } .output-container th { background: #f4f4f4; }
   .output-container .en { color: #0057d9; font-weight: bold; } .output-container .es { color: #c00000; font-weight: bold; }
+  .output-container .ans-en { color: #0057d9; font-style: italic; } .output-container .ans-es { color: #c00000; font-style: italic; }
+  .output-container .subcategory td { background: #e0e0e0; font-weight: bold; text-align: left; }
   @media (max-width: 860px){ .six, .twelve { grid-column: span 12; } .grid-2{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -47,30 +50,57 @@
         <div class="fcs-card">
             <h2>Vocabulary Creator</h2>
             <div class="grid">
-                <div class="six"><label for="v-topic">Topic</label><input id="v-topic" type="text" value="At the Airport"></div>
-                <div class="six"><label for="v-level">Level</label><select id="v-level"><option value="1">Level 1 — Survival</option><option value="2">Level 2 — Beginner</option><option value="3" selected>Level 3 — Intermediate</option><option value="4">Level 4 — Conversational</option><option value="5">Level 5 — Fluent</option></select></div>
-                <div class="six"><label for="v-tmode">Total Words Mode</label><select id="v-tmode"><option value="default" selected>Preset by Level</option><option value="custom">Custom</option></select><div id="v-presetText" class="hint"></div></div>
-                <div class="six"><div class="grid"><div class="six"><label for="v-tmin">Min</label><input id="v-tmin" type="number" min="1" disabled></div><div class="six"><label for="v-tmax">Max</label><input id="v-tmax" type="number" min="1" disabled></div></div></div>
-                <div class="twelve"><label for="v-vocab-include">Vocabulary to Include (optional)</label><textarea id="v-vocab-include" rows="3" placeholder="Paste a full or partial list of words to include..."></textarea></div>
+              <div class="six"><label for="v-topic">Topic</label><input id="v-topic" type="text" value="At the Airport"></div>
+              <div class="six"><label for="v-level">Level</label><select id="v-level"><option value="1">Level 1 — Survival</option><option value="2">Level 2 — Beginner</option><option value="3" selected>Level 3 — Intermediate</option><option value="4">Level 4 — Conversational</option><option value="5">Level 5 — Fluent</option></select></div>
+              <div class="six"><label for="v-tmode">Total Words Mode</label><select id="v-tmode"><option value="default" selected>Preset by Level</option><option value="custom">Custom</option></select><div id="v-presetText" class="hint"></div></div>
+              <div class="six"><div class="grid"><div class="six"><label for="v-tmin">Min</label><input id="v-tmin" type="number" min="1" disabled></div><div class="six"><label for="v-tmax">Max</label><input id="v-tmax" type="number" min="1" disabled></div></div></div>
+              <div class="twelve"><label for="v-vocab-include">Vocabulary to Include (optional)</label><textarea id="v-vocab-include" rows="3" placeholder="Paste a full or partial list of words to include..."></textarea></div>
             </div>
             <div class="actions"><button id="v-gen" class="primary">Generate Vocabulary</button><button id="v-copy">Copy HTML</button><div id="v-status" class="status"></div></div>
         </div>
         <div id="v-output" class="output-container"><p>Your vocabulary list will appear here...</p></div>
     </div>
+
+    <!-- ===== CONVERSATION GENERATOR ===== -->
+    <div id="gen-convo" class="fcs-generator">
+        <div class="fcs-card">
+            <h2>Conversation Creator</h2>
+            <div class="grid-2">
+              <div class="grid-full"><label>Topic</label><input id="c-topic" value="A trip to the beach" type="text"/></div>
+              <div><label>Level</label><select id="c-level"><option value="1">Level 1</option><option value="2" selected>Level 2</option><option value="3">Level 3</option><option value="4">Level 4</option><option value="5">Level 5</option></select></div>
+              <div><label>Tone</label><select id="c-tone"><option>Neutral, casual</option><option>Informal, friendly</option></select></div>
+              <div class="grid-full"><label>Vocabulary (Optional)</label><textarea id="c-vocab" rows="4"></textarea></div>
+              <div><label># Convos</label><input id="c-numConvos" type="number" value="1"/></div>
+              <div><label># Speakers</label><input id="c-numSpeakers" type="number" value="2"/></div>
+              <div><label>Add Fill-In-The-Blank?</label><select id="c-addFib"><option value="no">No</option><option value="yes" selected>Yes</option></select></div>
+              <div><label>FIB Focus</label><select id="c-fibFocus"><option>Mixed</option><option>Verbs only</option></select></div>
+            </div>
+            <div class="actions"><button id="c-gen" class="primary">Generate Conversation</button><button id="c-copy">Copy HTML</button><div id="c-status" class="status"></div></div>
+        </div>
+        <div id="c-output" class="output-container"><p>Your conversation will appear here...</p></div>
+    </div>
     
-    <!-- Other Generators UI are placeholders but functionally hooked up -->
-    <div id="gen-convo" class="fcs-generator" style="display:none;"><div class="fcs-card">...</div></div>
-    <div id="gen-test" class="fcs-generator" style="display:none;"><div class="fcs-card">...</div></div>
+    <!-- ===== TEST GENERATOR ===== -->
+    <div id="gen-test" class="fcs-generator">
+        <div class="fcs-card">
+            <h2>Test Creator</h2>
+            <div><label for="t-vocab">Vocabulary List</label><textarea id="t-vocab" rows="6" placeholder="Paste the EXACT vocabulary for the test..."></textarea></div>
+            <div><label for="t-level">Level (Grammar)</label><select id="t-level"><option value="1">Level 1</option><option value="2" selected>Level 2</option><option value="3">Level 3</option><option value="4">Level 4</option><option value="5">Level 5</option></select></div>
+            <div><label><input type="checkbox" id="t-anskeys" checked> Include Teacher Answer Keys?</label></div>
+            <div class="actions"><button id="t-gen" class="primary">Generate Test</button><button id="t-copy">Copy HTML</button><div id="t-status" class="status"></div></div>
+        </div>
+        <div id="t-output" class="output-container"><p>Your test will appear here...</p></div>
+    </div>
 </div>
 
 <script>
 "use strict";
 (function(){
     const $=id=>document.getElementById(id);const API_URL="/api/index";
-    (function(){const t=document.querySelectorAll(".fcs-tab-btn"),e=document.querySelectorAll(".fcs-generator");t.forEach(o=>{o.addEventListener("click",()=>{const n=o.id.replace("tab-","gen-");t.forEach(t=>t.classList.remove("primary")),o.classList.add("primary"),e.forEach(t=>{t.style.display=t.id===n?"block":"none"})})})})();
-    async function generateResult(t,e,n,o){e.disabled=!0,n.textContent="Generating... This can take up to a minute.",o.innerHTML="<h4>Please wait. The AI is crafting your content...</h4>";try{const s=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:t})}),c=await s.json();if(!s.ok)throw new Error(c.details||c.error||"An unknown server error.");o.innerHTML=c.content,n.textContent="Generation successful!"}catch(s){console.error("Error:",s),o.innerHTML=`<p style="color:red;"><strong>Error:</strong> Failed to generate. ${s.message}</p>`,n.textContent="An error occurred."}finally{e.disabled=!1}}
-    function copyToClipboard(t,e){if(!t.innerHTML||t.innerText.includes("will appear here")){e.textContent="Nothing to copy.";return}navigator.clipboard.writeText(t.innerHTML).then(()=>e.textContent="Copied!",()=>e.textContent="Copy failed.")}
-    (function(){const t=$("v-gen"),e=$("v-copy"),o=$("v-status"),n=$("v-output"),s=$("v-level"),c=$("v-tmode"),i=$("v-tmin"),a=$("v-tmax"),l=$("v-presetText"),r=$("v-topic"),u=$("v-vocab-include"),d={1:{min:35,max:55},2:{min:60,max:85},3:{min:90,max:120},4:{min:120,max:180},5:{min:160,max:240}},m={1:"Level 1—Survival",2:"Level 2—Beginner",3:"Level 3—Intermediate",4:"Level 4—Conversational",5:"Level 5—Fluent"};function oup(){const t="custom"===c.value,e=d[s.value];i.disabled=!t,a.disabled=!t,t||(i.value=e.min,a.value=e.max),l.textContent=`Preset for ${m[s.value]}: ${e.min}–${e.max} words.`}c.addEventListener("change",oup),s.addEventListener("change",oup),t.addEventListener("click",()=>{if(!r.value.trim()){o.textContent="Please enter a topic.";return}const e=`OUTPUT CONTRACT: You MUST respond with a single, complete HTML file with embedded styles. Do not include markdown or any commentary. Adhere to all rules from the FCS VOCABULAR-Y CREATOR documentation exactly. Pay close attention to word counts, grammar for the specified level, and the required sentence structures. The output MUST be ready to display directly in a browser.
+    (function(){const e=document.querySelectorAll(".fcs-tab-btn"),t=document.querySelectorAll(".fcs-generator");e.forEach(o=>{o.addEventListener("click",()=>{const n=o.id.replace("tab-","gen-");e.forEach(e=>e.classList.remove("primary")),o.classList.add("primary"),t.forEach(t=>{t.style.display=t.id===n?"block":"none"})})})})();
+    async function generateResult(e,t,o,n){t.disabled=!0,o.textContent="Generating... This can take up to a minute.",n.innerHTML="<h4>Please wait. The AI is crafting your content...</h4>";try{const s=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:e})}),c=await s.json();if(!s.ok)throw new Error(c.details||c.error||"An unknown server error.");let l=c.content;"| --- |"===l.substring(l.indexOf("| --- |"),l.indexOf("| --- |")+7)?n.innerHTML=marked.parse(l).replace(/\| \*\*(.*?)\*\* \| \*\*(.*?)\*\* \|/g,'<tr><td colspan="2" class="subcategory">$1 / $2</td></tr>'):n.innerHTML=l,o.textContent="Generation successful!"}catch(s){console.error("Error:",s),n.innerHTML=`<p style="color:red;"><strong>Error:</strong> Failed to generate. ${s.message}</p>`,o.textContent="An error occurred."}finally{t.disabled=!1}}
+    function copyToClipboard(e,t){if(!e.innerHTML||e.innerText.includes("will appear here")){t.textContent="Nothing to copy.";return}navigator.clipboard.writeText(e.innerHTML).then(()=>t.textContent="Copied!",()=>t.textContent="Copy failed.")}
+    (function(){const e=$("v-gen"),t=$("v-copy"),o=$("v-status"),n=$("v-output"),s=$("v-level"),c=$("v-tmode"),i=$("v-tmin"),a=$("v-tmax"),l=$("v-presetText"),r=$("v-topic"),u=$("v-vocab-include"),d={1:{min:35,max:55},2:{min:60,max:85},3:{min:90,max:120},4:{min:120,max:180},5:{min:160,max:240}},m={1:"Level 1—Survival",2:"Level 2—Beginner",3:"Level 3—Intermediate",4:"Level 4—Conversational",5:"Level 5—Fluent"};function p(){const e="custom"===c.value,t=d[s.value];i.disabled=!e,a.disabled=!e,e||(i.value=t.min,a.value=t.max),l.textContent=`Preset for ${m[s.value]}: ${t.min}–${t.max} words.`}c.addEventListener("change",p),s.addEventListener("change",p),e.addEventListener("click",()=>{if(!r.value.trim()){o.textContent="Please enter a topic.";return}const t=`OUTPUT CONTRACT: You MUST respond with a single, complete HTML file with embedded styles. Do not include markdown or any commentary. Adhere to all rules from the FCS VOCABULARY CREATOR documentation exactly. Pay close attention to word counts, grammar for the specified level, and the required sentence structures. The output MUST be ready to display directly in a browser.
 
 --- USER INPUT ---
 Topic: ${r.value}
@@ -78,9 +108,24 @@ Level: ${s.value}
 Total Words Mode: ${c.value}
 Min Words: ${i.value}
 Max Words: ${a.value}
-Vocabulary to Include: ${u.value||"None"}`;generateResult(e,t,o,n)}),e.addEventListener("click",()=>copyToClipboard(n,o)),oup()})();
-    (function(){const e=$("gen-convo");e.innerHTML=`<div class="fcs-card"><h2>Conversation Creator is temporarily unavailable.</h2></div>`})();
-    (function(){const e=$("gen-test");e.innerHTML=`<div class="fcs-card"><h2>Test Creator is temporarily unavailable.</h2></div>`})();
+Vocabulary to Include: ${u.value||"None"}`;generateResult(t,e,o,n)}),t.addEventListener("click",()=>copyToClipboard(n,o)),p()})();
+    (function(){const e=$("c-gen"),t=$("c-copy"),o=$("c-status"),n=$("c-output");e.addEventListener("click",()=>{if(!$("c-topic").value.trim()){o.textContent="Please enter a topic.";return}const t=`OUTPUT CONTRACT: You must respond with a single, complete HTML file. Follow all rules from the FCS CONVERSATION CREATOR documentation exactly. Key Rules: Format conversations and practices in two columns. Bold and color vocabulary. Use the ________ (ENGLISH) format for Fill-in-the-Blanks.
+
+--- USER INPUT ---
+Topic: ${$("c-topic").value}
+Level: ${$("c-level").value}
+Vocabulary List: ${$("c-vocab").value||"auto"}
+Num Convos: ${$("c-numConvos").value}
+Num Speakers: ${$("c-numSpeakers").value}
+Add FIB: ${$("c-addFib").value}
+FIB Focus: ${$("c-fibFocus").value}
+Tone: ${$("c-tone").value}`;generateResult(t,e,o,n)}),t.addEventListener("click",()=>copyToClipboard(n,o))})();
+    (function(){const e=$("t-gen"),t=$("t-copy"),o=$("t-status"),n=$("t-output");e.addEventListener("click",()=>{if(!$("t-vocab").value.trim()){o.textContent="Please paste a vocabulary list.";return}const t=`OUTPUT CONTRACT: Create a 3-part Spanish test as a single HTML file. Follow all rules from the FCS TEST CREATOR documentation. Key Rules: Return ONLY raw HTML. Structure MUST be Part 1 (ES->EN), Part 2 (EN->ES), Part 3 (Oral Prompts). Use ONLY provided vocab and level-grammar.
+
+--- USER INPUT ---
+Level: ${$("t-level").value}
+Include Answer Keys: ${$("t-anskeys").checked}
+Vocabulary List:\n${$("t-vocab").value}`;generateResult(t,e,o,n)}),t.addEventListener("click",()=>copyToClipboard(n,o))})();
 })();
 </script>
 </body>
