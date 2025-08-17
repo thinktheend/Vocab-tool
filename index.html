@@ -4,7 +4,6 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FCS AI Generator Suite</title>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
   :root { --bg:#ffffff; --fg:#111; --muted:#666; --border:#d0d0d0; --accent:#0057d9; --primary-blue:#0b5cff; }
   body { background: var(--light-gray-bg, #f8f9fa); color: var(--fg); font-family: Calibri, Arial, sans-serif; font-size: 15px; margin:0; }
@@ -28,14 +27,13 @@
   .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top:20px; }
   .status { margin-top:10px; min-height:1.5em; text-align:left; color:var(--muted); font-size:13px; }
   .output-container { border:1px solid var(--border); border-radius:12px; padding:24px; background:#fdfdfd; min-height: 200px; margin-top:20px; }
-  .output-container h1, .output-container h2 { text-align: center; color: #000; }
-  .output-container h1 { font-size: 20px; } .output-container h2 { font-size: 18px; border: none; margin-top:24px; background: #f0f0f0; padding:8px; border-radius: 5px; }
-  .output-container table { width:100%; border-collapse: collapse; margin-top: 12px; font-size:14px;}
+  .output-container h1, .output-container h2 { text-align: center; } .output-container .note { font-size: 9pt; color: #666; text-align:center; }
+  .output-container table { width:100%; border-collapse: collapse; margin-top: 12px; font-size:10pt;}
   .output-container th, .output-container td { border:1px solid #ccc; padding:6px; vertical-align:top; } .output-container th { background: #f4f4f4; }
   .output-container .en { color: #0057d9; font-weight: bold; } .output-container .es { color: #c00000; font-weight: bold; }
   .output-container .ans-en { color: #0057d9; font-style: italic; } .output-container .ans-es { color: #c00000; font-style: italic; }
   .output-container .subcategory { background: #e0e0e0; font-weight: bold; text-align: left; }
-  .output-container .spacer { height:12px; background:#fff; border:none; }
+  .output-container .spacer td { height:12px; background:#fff; border:none; }
   @media (max-width: 860px){ .six, .twelve { grid-column: span 12; } .grid-2{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -51,20 +49,23 @@
     <!-- ===== VOCABULARY GENERATOR ===== -->
     <div id="gen-vocab" class="fcs-generator active">
         <div class="fcs-card">
+            <h2>Vocabulary Generator</h2>
             <div class="grid">
-              <div class="six"><label for="v-topic">Topic</label><input id="v-topic" type="text" value="At the Airport"></div>
-              <div class="six"><label for="v-level">Level</label><select id="v-level"><option value="1">Level 1 — Survival</option><option value="2">Level 2 — Beginner</option><option value="3" selected>Level 3 — Intermediate</option><option value="4">Level 4 — Conversational</option><option value="5">Level 5 — Fluent</option></select></div>
-              <div class="six"><label for="v-tmode">Total Words Mode</label><select id="v-tmode"><option value="default" selected>Preset by Level</option><option value="custom">Custom (enable inputs)</option></select><div id="v-presetText" class="preset-line"></div></div>
-              <div class="six"><div class="grid"><div class="six"><label for="v-tmin">Min</label><input id="v-tmin" type="number" min="1" disabled></div><div class="six"><label for="v-tmax">Max</label><input id="v-tmax" type="number" min="1" disabled></div></div></div>
+                <div class="six"><label for="v-topic">Topic</label><input id="v-topic" type="text" value="At the Airport"></div>
+                <div class="six"><label for="v-level">Level</label><select id="v-level"><option value="1">Level 1</option><option value="2">Level 2</option><option value="3" selected>Level 3</option><option value="4">Level 4</option><option value="5">Level 5</option></select></div>
+                <div class="six"><label for="v-tmode">Total Words Mode</label><select id="v-tmode"><option value="default" selected>Preset by Level</option><option value="custom">Custom</option></select><div id="v-presetText"></div></div>
+                <div class="six"><div class="grid"><div class="six"><label for="v-tmin">Min</label><input id="v-tmin" type="number" disabled></div><div class="six"><label for="v-tmax">Max</label><input id="v-tmax" type="number" disabled></div></div></div>
+                <div class="twelve"><label>Vocabulary to Include (optional)</label><textarea id="v-vocab-include" rows="3"></textarea></div>
             </div>
             <div class="actions"><button id="v-gen" class="primary">Generate Vocabulary</button><button id="v-copy">Copy HTML</button><div id="v-status" class="status"></div></div>
         </div>
-        <div id="v-output" class="output-container"><p>Your vocabulary list will appear here...</p></div>
+        <div id="v-output" class="output-container"><p>Your generated vocabulary list will appear here...</p></div>
     </div>
 
     <!-- ===== CONVERSATION GENERATOR ===== -->
     <div id="gen-convo" class="fcs-generator">
         <div class="fcs-card">
+            <h2>Conversation Generator</h2>
             <div class="grid-2">
               <div class="grid-full"><label>Topic</label><input id="c-topic" value="A trip to the beach" type="text"/></div>
               <div><label>Level</label><select id="c-level"><option value="1">Level 1</option><option value="2" selected>Level 2</option><option value="3">Level 3</option><option value="4">Level 4</option><option value="5">Level 5</option></select></div>
@@ -100,30 +101,50 @@
 
     // --- Tab Switching ---
     (function initTabs(){
-        const tabs=document.querySelectorAll('.fcs-tab-btn'),gens=document.querySelectorAll('.fcs-generator');
-        tabs.forEach(tab=>{tab.addEventListener('click',()=>{const t=tab.id.replace('tab-','gen-');tabs.forEach(t=>t.classList.remove('primary'));tab.classList.add('primary');gens.forEach(g=>{g.style.display=g.id===t?'block':'none';g.classList.toggle('active',g.id===t)})})});
+        const tabs = document.querySelectorAll('.fcs-tab-btn'), gens = document.querySelectorAll('.fcs-generator');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                const targetId = tab.id.replace('tab-', 'gen-');
+                tabs.forEach(t => t.classList.remove('primary'));
+                tab.classList.add('primary');
+                gens.forEach(gen => { gen.style.display = 'none'; gen.classList.remove('active'); });
+                const activeGen = $(targetId);
+                activeGen.style.display = 'block';
+                activeGen.classList.add('active');
+            });
+        });
     })();
 
     // --- CORE AI CALL ---
     async function generateResult(prompt, buttonEl, statusEl, outputEl) {
-        buttonEl.disabled=true; statusEl.textContent="Generating... This can take up to a minute.";
+        buttonEl.disabled=true; statusEl.textContent="Generating... This can take up to a minute...";
         outputEl.innerHTML="<h4>Please wait. The AI is crafting your content...</h4>";
         try {
             const response = await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt})});
             const result = await response.json();
-            if(!response.ok)throw new Error(result.details||result.error||"An unknown error occurred.");
-            outputEl.innerHTML = result.content;
+            if(!response.ok)throw new Error(result.details||result.error||"An unknown server error.");
+            
+            let htmlContent = result.content;
+            if(htmlContent.includes("| --- |")){ // It's Markdown
+                outputEl.innerHTML = marked.parse(htmlContent)
+                    .replace(/\| \*\*(.*?)\*\* \| \*\*(.*?)\*\* \|/g, '<tr><td colspan="2" class="subcategory">$1 / $2</td></tr>');
+            } else {
+                outputEl.innerHTML = htmlContent;
+            }
             statusEl.textContent="Generation successful!";
-        } catch(error){console.error("Error:",error);outputEl.innerHTML=`<p style="color:red;"><strong>Error:</strong> ${error.message}</p>`;statusEl.textContent="An error occurred.";}
+        } catch(error){
+            console.error("Error:",error);
+            outputEl.innerHTML=`<p style="color:red;"><strong>Error:</strong> ${error.message}</p>`;
+            statusEl.textContent="An error occurred.";
+        }
         finally{buttonEl.disabled=false;}
     }
-
-    // --- COPY HELPER ---
-    function copyToClipboard(outputEl,statusEl){if(!outputEl.innerHTML.includes('<p>')){statusEl.textContent="Nothing to copy.";return;}navigator.clipboard.writeText(outputEl.innerHTML).then(()=>statusEl.textContent="Copied!",()=>statusEl.textContent="Copy failed.")}
+    function copyToClipboard(outputEl,statusEl){if(!outputEl.innerHTML||outputEl.innerText.includes("...will appear here...")){statusEl.textContent="Nothing to copy.";return}navigator.clipboard.writeText(outputEl.innerHTML).then(()=>statusEl.textContent="Copied!",()=>statusEl.textContent="Copy failed.")}
     
     // --- VOCABULARY GENERATOR ---
     (function setupVocab(){
-        const genBtn=$('v-gen'),copyBtn=$('v-copy'),statusEl=$('v-status'),outputEl=$('v-output'),levelEl=$("v-level"),tmodeEl=$("v-tmode"),tminEl=$("v-tmin"),tmaxEl=$("v-tmax"),presetTextEl=$("v-presetText"),topicEl=$("v-topic");
+        const genBtn=$('v-gen'),copyBtn=$('v-copy'),statusEl=$('v-status'),outputEl=$('v-output');
+        const levelEl=$("v-level"),tmodeEl=$("v-tmode"),tminEl=$("v-tmin"),tmaxEl=$("v-tmax"),presetTextEl=$("v-presetText"),topicEl=$("v-topic");
         const presetRanges={"1":{min:35,max:55},"2":{min:60,max:85},"3":{min:90,max:120},"4":{min:120,max:180},"5":{min:160,max:240}};
         const levelTexts={"1":"Level 1—Survival","2":"Level 2—Beginner","3":"Level 3—Intermediate","4":"Level 4—Conversational","5":"Level 5—Fluent"};
         
@@ -133,45 +154,38 @@
             if(!isCustom){tminEl.value=range.min;tmaxEl.value=range.max;}
             presetTextEl.textContent=`Preset for ${levelTexts[levelEl.value]}: ${range.min}–${range.max} words.`;
         }
-        tmodeEl.addEventListener('change',updateUI);levelEl.addEventListener('change',updateUI);copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
-        genBtn.addEventListener('click', ()=>{
+        tmodeEl.addEventListener('change',updateUI);levelEl.addEventListener('change',updateUI);
+        genBtn.addEventListener('click', () => {
             if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
-            const prompt = `OUTPUT CONTRACT: You must respond with a single, complete HTML file with embedded styles. Do not include markdown or any commentary. Adhere to all rules from the FCS VOCABULARY CREATOR documentation exactly. Pay close attention to word counts, grammar for the specified level, and the required sentence structures (e.g., "Here is the..." for nouns). The output MUST be ready to display directly in a browser.\n\n`
-             + `--- USER INPUT ---\nTopic: ${topicEl.value}\nLevel: ${levelEl.value}\nTotal Words Mode: ${tmodeEl.value}\nMin Words: ${tminEl.value}\nMax Words: ${tmaxEl.value}`;
+            const prompt = `OUTPUT CONTRACT: Produce a COMPLETE, EXCEL-READY VOCABULARY LESSON as a single HTML file with embedded styles, following ALL rules from the FCS Vocabulary Creator documentation exactly. Key Rules: Calibri font. English bold blue (.en), Spanish bold red (.es). Nouns/Verbs/Descriptives MUST be full sentences with the vocab term wrapped in the correct span. All sections alphabetized by English. Adhere strictly to word counts and level grammar ranges. Produce ONE downloadable .html file (no commentary before/after). The user does NOT want markdown, they want a final, usable HTML file. Here is the User Input:\n\nTopic: ${topicEl.value}\nLevel: ${levelEl.value}\nTotal Words Mode: ${tmodeEl.value}\nMin Words: ${tminEl.value}\nMax Words: ${tmaxEl.value}\nVocabulary to Include: ${$('v-vocab-include').value || 'None'}`;
             generateResult(prompt, genBtn, statusEl, outputEl);
         });
-        updateUI();
+        copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));updateUI();
     })();
     
     // --- CONVERSATION GENERATOR ---
     (function setupConvo(){
         const genBtn=$('c-gen'),copyBtn=$('c-copy'),statusEl=$('c-status'),outputEl=$('c-output');
-        copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
         genBtn.addEventListener('click', ()=>{
-            const topicEl = $('c-topic');
-            if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
-            const prompt = `OUTPUT CONTRACT: You must respond with a single, complete HTML file with embedded styles. Do not include markdown or any commentary. Adhere to all rules from the FCS CONVERSATION CREATOR documentation exactly. Key Rules: Format conversations and practices in two columns. Bold and color vocabulary. Keep grammar strictly within the specified level. Use the ________ (ENGLISH) format for Fill-in-the-Blanks. The output MUST be ready to display directly in a browser.\n\n`
-             + `--- USER INPUT ---\nTopic: ${topicEl.value}\nLevel: ${$('c-level').value}\nVocabulary List: ${$('c-vocab').value||"auto"}\nNum Convos: ${$('c-numConvos').value}\nNum Speakers: ${$('c-numSpeakers').value}\nAdd FIB: ${$('c-addFib').value}\nFIB Focus: ${$('c-fibFocus').value}\nTone: ${$('c-tone').value}`;
+            if(!$('c-topic').value.trim()){statusEl.textContent="Please enter a topic.";return;}
+            const prompt = `OUTPUT CONTRACT: You are creating content for the Fast Conversational Spanish program. Produce one or more conversations and optionally two Fill-in-the-Blank exercises, delivered as a single HTML file with embedded styles. Follow all rules from the FCS Conversation Creator documentation exactly. Key Rules: Return ONLY raw HTML. Use specified grammar for the level. Format conversations and practices in two columns (English/Spanish), side-by-side. Bold vocabulary and color it blue (.en) and red (.es). For Fill-in-the-Blank, use ________ (ENGLISH WORD TO TRANSLATE) format. Here is the User Input:\n\nTopic: ${$('c-topic').value}\nLevel: ${$('c-level').value}\nVocabulary List: ${$('c-vocab').value||"auto"}\nNum Convos: ${$('c-numConvos').value}\nNum Speakers: ${$('c-numSpeakers').value}\nAdd FIB: ${$('c-addFib').value}\nFIB Focus: ${$('c-fibFocus').value}\nTone: ${$('c-tone').value}`;
             generateResult(prompt, genBtn, statusEl, outputEl);
         });
+        copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     })();
 
     // --- TEST GENERATOR ---
     (function setupTest(){
         const genBtn=$('t-gen'),copyBtn=$('t-copy'),statusEl=$('t-status'),outputEl=$('t-output');
-        copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
         genBtn.addEventListener('click', ()=>{
-            const vocabEl = $('t-vocab');
-            if(!vocabEl.value.trim()){statusEl.textContent="Please paste a vocabulary list.";return;}
-            const prompt = `OUTPUT CONTRACT: You must respond with a single, complete HTML file with embedded styles. Do not include markdown or commentary. Adhere to all rules from the FCS TEST CREATOR documentation precisely. Key Rules: Return ONLY raw HTML. Structure MUST be Part 1 (ES->EN), Part 2 (EN->ES), Part 3 (Oral Prompts). Use only the provided vocabulary and level-specific grammar. Place answer keys at the very end if requested. The output MUST be ready to display directly in a browser.\n\n`
-             + `--- USER INPUT ---\nLevel: ${$('t-level').value}\nInclude Answer Keys: ${$('t-anskeys').checked}\nVocabulary List:\n${vocabEl.value}`;
+            if(!$('t-vocab').value.trim()){statusEl.textContent="Please paste a vocabulary list.";return;}
+            const prompt = `OUTPUT CONTRACT: Create a 3-part Spanish test. Produce the output as a single HTML file with embedded styles. Do not include markdown or commentary. Adhere to all rules from the FCS TEST CREATOR documentation precisely. Key Rules: Return ONLY raw HTML. Structure MUST be Part 1 (ES->EN), Part 2 (EN->ES), Part 3 (Oral Prompts). Use only the provided vocabulary and level-specific grammar. Place answer keys at the very end if requested. Here is the User Input:\n\nLevel: ${$('t-level').value}\nInclude Answer Keys: ${$('t-anskeys').checked}\nVocabulary List:\n${$('t-vocab').value}`;
             generateResult(prompt, genBtn, statusEl, outputEl);
         });
+        copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     })();
     
-    initializeControls(); // Call after defining setups
 })();
 </script>
-
 </body>
 </html>
