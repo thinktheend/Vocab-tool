@@ -1,9 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FCS AI Generator Suite</title>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>FCS AI Generator Suite</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
   :root { --bg:#ffffff; --fg:#111; --muted:#666; --border:#d0d0d0; --accent:#0057d9; --primary-blue:#0b5cff; }
@@ -15,6 +13,7 @@
   label { font-weight: 600; font-size: 14px; display: block; margin-bottom: 6px; }
   input[type="text"], select, input[type="number"], textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; font-size:15px; box-sizing:border-box; }
   input:disabled { background-color: #f8f9fa; }
+  .hint, .small { font-size: 12px; color: var(--muted); margin-top: 4px; }
   button { padding: 10px 16px; border-radius: 8px; border:1px solid var(--border); background:#f6f8fb; cursor: pointer; font-weight: 600; font-size:15px; transition: all 0.2s; }
   button.primary { background: var(--primary-blue); color: #fff; border-color: var(--primary-blue); }
   button:hover { transform: translateY(-2px); box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
@@ -27,23 +26,12 @@
   .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top:20px; }
   .status { margin-top:10px; min-height:1.5em; text-align:left; color:var(--muted); font-size:13px; }
   .output-container { border:1px solid var(--border); border-radius:12px; padding:24px; background:#fdfdfd; min-height: 200px; margin-top:20px; }
-  .output-container h2 { text-align: center; border: none; margin-top:24px; background: #f0f0f0; padding:8px; border-radius: 5px; }
-  .output-container table { width:100%; border-collapse: collapse; margin-top: 12px; font-size:14px;}
+  .output-container h1, .output-container h2 { text-align: center; }
+  .output-container table { width:100%; border-collapse: collapse; margin-top: 12px; font-size:10pt;}
   .output-container th, .output-container td { border:1px solid #ccc; padding:6px; vertical-align:top; } .output-container th { background: #f4f4f4; }
   .output-container .en { color: #0057d9; font-weight: bold; } .output-container .es { color: #c00000; font-weight: bold; }
-  
-  .ai-modal{display:none; position:fixed; z-index:1000; left:0; top:0; width:100%; height:100%; overflow:auto; background-color:rgba(0,0,0,0.6);}
-  .ai-modal-content{background-color:#fff; margin:8% auto; padding:30px 40px; width:90%; max-width:700px; border-radius:10px; position:relative; box-shadow:0 5px 25px rgba(0,0,0,0.3);}
-  .ai-modal-content * { color: #111 !important; }
-  .ai-modal-close-btn{color:#aaa !important; position:absolute; top:10px; right:20px; font-size:32px; font-weight:bold; cursor:pointer; line-height:1;}
-  .card-word-display{text-align:center;font-size:40px;font-weight:bold;}
-  .card-translation-display{text-align:center;font-size:24px; color: #555 !important;}
-  .card-sentence-es-display{font-size:20px; padding:15px; background-color:#f7f7f7; border:1px solid #eee; border-radius:8px;}
-  .card-sentence-en-display{font-size:16px; margin-top:10px; font-style:italic; color: #555 !important;}
-  .card-nav{margin-top:30px; display:flex; justify-content:space-between; align-items:center;}
-  #conversation-display{margin-top:20px; padding-top:20px; border-top:1px solid var(--border); display:grid; grid-template-columns:1fr 1fr; gap:25px; text-align:left; max-height:40vh; overflow-y:auto;}
-  #conversation-display p{white-space:pre-wrap; line-height:1.6;}
-
+  .output-container .ans-en { color: #0057d9; font-style: italic; } .output-container .ans-es { color: #c00000; font-style: italic; }
+  .output-container .subcategory { background: #e0e0e0; font-weight: bold; text-align: left; }
   @media (max-width: 860px){ .six, .twelve { grid-column: span 12; } .grid-2{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -59,30 +47,49 @@
     <!-- ===== VOCABULARY GENERATOR ===== -->
     <div id="gen-vocab" class="fcs-generator active">
         <div class="fcs-card">
-            <h2>Vocabulary Generator</h2>
+            <h2>Vocabulary Creator</h2>
             <div class="grid">
-              <div class="six"><label for="v-topic">Topic</label><input id="v-topic" type="text" value="At the Airport"></div>
-              <div class="six"><label for="v-level">Level</label><select id="v-level"><option value="1">Level 1</option><option value="2">Level 2</option><option value="3" selected>Level 3</option><option value="4">Level 4</option><option value="5">Level 5</option></select></div>
-              <div class="six"><label for="v-tmode">Total Words Mode</label><select id="v-tmode"><option value="default" selected>Preset by Level</option><option value="custom">Custom</option></select><div id="v-presetText"></div></div>
-              <div class="six"><div class="grid"><div class="six"><label for="v-tmin">Min</label><input id="v-tmin" type="number" disabled></div><div class="six"><label for="v-tmax">Max</label><input id="v-tmax" type="number" disabled></div></div></div>
-              <div class="twelve"><label>Vocabulary to Include (optional)</label><textarea id="v-vocab-include" rows="3"></textarea></div>
+                <div class="six"><label for="v-topic">Topic</label><input id="v-topic" type="text" placeholder="e.g., At the Airport"></div>
+                <div class="six"><label for="v-level">Level</label><select id="v-level"><option value="1">Level 1</option><option value="2">Level 2</option><option value="3" selected>Level 3</option><option value="4">Level 4</option><option value="5">Level 5</option></select></div>
+                <div class="six"><label for="v-tmode">Total Words Mode</label><select id="v-tmode"><option value="default" selected>Preset by Level</option><option value="custom">Custom</option></select><div id="v-presetText" class="hint"></div></div>
+                <div class="six"><div class="grid"><div class="six"><label for="v-tmin">Total Min</label><input id="v-tmin" type="number" min="1" disabled></div><div class="six"><label for="v-tmax">Total Max</label><input id="v-tmax" type="number" min="1" disabled></div></div></div>
+                <div class="twelve"><label>Vocabulary to Include (optional)</label><textarea id="v-vocab-include" rows="3" placeholder="Paste a full or partial list of words to include..."></textarea></div>
             </div>
-            <div class="actions">
-                <button id="v-gen" class="primary">Generate Vocabulary</button>
-                <button id="v-copy">Copy HTML</button>
-                <div id="v-status" class="status"></div>
-            </div>
+            <div class="actions"><button id="v-gen" class="primary">Generate Vocabulary</button><button id="v-copy">Copy HTML</button><div id="v-status" class="status"></div></div>
         </div>
-        <div id="v-output" class="output-container"><p>Your list will appear here...</p></div>
+        <div id="v-output" class="output-container"><p>Your vocabulary list will appear here...</p></div>
     </div>
 
-    <!-- Other generators are unchanged for this fix -->
-    <div id="gen-convo" class="fcs-generator"><!-- ... --></div>
-    <div id="gen-test" class="fcs-generator"><!-- ... --></div>
-
-    <!-- NEW MODAL STRUCTURES -->
-    <div id="flashcard-modal" class="ai-modal"><div class="ai-modal-content"><span class="ai-modal-close-btn">&times;</span><div id="flashcard-word" class="card-word-display"></div><div id="flashcard-translation" class="card-translation-display"></div><hr style="margin:20px 0;"><div id="flashcard-sentence-es" class="card-sentence-es-display"></div><div id="flashcard-sentence-en" class="card-sentence-en-display"></div><div class="card-nav"><button id="flashcard-prev">Previous</button><div id="flashcard-counter"></div><button id="flashcard-next">Next</button></div></div></div>
-    <div id="conversation-modal" class="ai-modal"><div class="ai-modal-content"><span class="ai-modal-close-btn">&times;</span><div id="conversation-word" class="card-word-display"></div><div id="conversation-translation" class="card-translation-display"></div><div id="conversation-display"></div><div id="conversation-nav" class="card-nav"><button id="conversation-prev">Previous</button><div id="conversation-counter"></div><button id="conversation-next">Next</button></div></div></div>
+    <!-- ===== CONVERSATION GENERATOR ===== -->
+    <div id="gen-convo" class="fcs-generator">
+        <div class="fcs-card">
+            <h2>Conversation Creator</h2>
+            <div class="grid-2">
+              <div class="grid-full"><label>Topic</label><input id="c-topic" type="text"/></div>
+              <div><label>Level</label><select id="c-level"><option value="1">Level 1</option><option value="2" selected>Level 2</option><option value="3">Level 3</option><option value="4">Level 4</option><option value="5">Level 5</option></select></div>
+              <div><label>Tone</label><select id="c-tone"><option>Neutral, casual</option><option>Informal, friendly</option><option>Professional, formal</option></select></div>
+              <div class="grid-full"><label>Vocabulary (Optional)</label><textarea id="c-vocab" rows="4"></textarea></div>
+              <div><label># Convos</label><input id="c-numConvos" type="number" value="1"/></div>
+              <div><label># Speakers</label><input id="c-numSpeakers" type="number" value="2"/></div>
+              <div><label>Add Fill-In-The-Blank?</label><select id="c-addFib"><option value="no">No</option><option value="yes" selected>Yes</option></select></div>
+              <div><label>FIB Focus</label><select id="c-fibFocus"><option>Mixed</option><option>Verbs only</option></select></div>
+            </div>
+            <div class="actions"><button id="c-gen" class="primary">Generate Conversation</button><button id="c-copy">Copy HTML</button><div id="c-status" class="status"></div></div>
+        </div>
+        <div id="c-output" class="output-container"><p>Your conversation will appear here...</p></div>
+    </div>
+    
+    <!-- ===== TEST GENERATOR ===== -->
+    <div id="gen-test" class="fcs-generator">
+        <div class="fcs-card">
+            <h2>Test Creator</h2>
+            <div><label for="t-vocab">Vocabulary List</label><textarea id="t-vocab" rows="6" placeholder="Paste the EXACT vocabulary for the test..."></textarea></div>
+            <div><label for="t-level">Level (Grammar)</label><select id="t-level"><option value="1">Level 1</option><option value="2" selected>Level 2</option><option value="3">Level 3</option><option value="4">Level 4</option><option value="5">Level 5</option></select></div>
+            <div><label><input type="checkbox" id="t-anskeys" checked> Include Teacher Answer Keys?</label></div>
+            <div class="actions"><button id="t-gen" class="primary">Generate Test</button><button id="t-copy">Copy HTML</button><div id="t-status" class="status"></div></div>
+        </div>
+        <div id="t-output" class="output-container"><p>Your test will appear here...</p></div>
+    </div>
 </div>
 
 <script>
@@ -91,103 +98,76 @@
     const $ = (id) => document.getElementById(id);
     const API_URL = "/api/index"; 
 
-    // Re-declare to add new buttons
-    let allGeneratedWords = [];
-    let currentCardIndex = 0;
-    let currentConversationIndex = 0;
-    const flashcardsBtn = document.createElement('button'); // Dynamically creating for insertion
-    flashcardsBtn.id = 'v-flashcards'; flashcardsBtn.textContent = 'Flash Cards'; flashcardsBtn.style.display = 'none';
-    const conversationBtn = document.createElement('button');
-    conversationBtn.id = 'v-conversation'; conversationBtn.textContent = 'Conversations'; conversationBtn.style.display = 'none';
-
     // --- Tab Switching ---
-    // (Unchanged)
-    
+    (function initTabs(){
+        const tabs=document.querySelectorAll('.fcs-tab-btn'),gens=document.querySelectorAll('.fcs-generator');
+        tabs.forEach(tab=>{tab.addEventListener('click',()=>{const t=tab.id.replace('tab-','gen-');tabs.forEach(t=>t.classList.remove('primary'));tab.classList.add('primary');gens.forEach(g=>{g.style.display=g.id===t?'block':'none';})})});
+    })();
+
     // --- CORE AI CALL ---
     async function generateResult(prompt, buttonEl, statusEl, outputEl) {
         buttonEl.disabled=true; statusEl.textContent="Generating... This can take up to a minute...";
         outputEl.innerHTML="<h4>Please wait. The AI is crafting your content...</h4>";
         try {
-            const response = await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt})});
-            const result = await response.json();
-            if(!response.ok)throw new Error(result.details||result.error||"An unknown error occurred.");
-            outputEl.innerHTML = result.content;
+            const response=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt})});
+            const result=await response.json();
+            if(!response.ok)throw new Error(result.details||result.error||"An unknown server error.");
+            outputEl.innerHTML = result.content; // The AI now sends back final HTML
             statusEl.textContent="Generation successful!";
-        } catch(error){console.error("Error:",error);outputEl.innerHTML=`<p style="color:red;"><strong>Error:</strong> ${error.message}</p>`;statusEl.textContent="An error occurred.";}
+        } catch(error){console.error("Error:",error);outputEl.innerHTML=`<p style="color:red;"><strong>Error:</strong> Failed to generate. ${error.message}</p>`;statusEl.textContent="An error occurred.";}
         finally{buttonEl.disabled=false;}
     }
-
+    
+    // --- COPY HELPER ---
+    function copyToClipboard(outputEl,statusEl){if(!outputEl.innerHTML||outputEl.innerText.includes("will appear here")){statusEl.textContent="Nothing to copy.";return}navigator.clipboard.writeText(outputEl.innerHTML).then(()=>statusEl.textContent="Copied!",()=>statusEl.textContent="Copy failed.")}
+    
     // --- VOCABULARY GENERATOR ---
-    (function setupVocab() {
-        // ... (other element refs)
-        const outputEl = $('v-output'), genBtn = $('v-gen');
-
-        // Insert new buttons into the action bar
-        const actionsDiv = $('v-gen').parentElement;
-        actionsDiv.insertBefore(conversationBtn, $('v-copy'));
-        actionsDiv.insertBefore(flashcardsBtn, conversationBtn);
-
-        // ... (updateUI logic is unchanged)
+    (function setupVocab(){
+        const genBtn=$('v-gen'),copyBtn=$('v-copy'),statusEl=$('v-status'),outputEl=$('v-output'),levelEl=$("v-level"),tmodeEl=$("v-tmode"),tminEl=$("v-tmin"),tmaxEl=$("v-tmax"),presetTextEl=$("v-presetText");
+        const presetRanges={"1":{min:35,max:55},"2":{min:60,max:85},"3":{min:90,max:120},"4":{min:120,max:180},"5":{min:160,max:240}};
+        const levelTexts={"1":"Level 1—Survival","2":"Level 2—Beginner","3":"Level 3—Intermediate","4":"Level 4—Conversational","5":"Level 5—Fluent"};
         
-        genBtn.addEventListener('click', async () => {
-            // ... (prompt building logic is here)
-            const topicEl=$("v-topic");
-            const prompt = `OUTPUT CONTRACT: You must respond with a single, complete HTML file with embedded styles. Do not include markdown or any commentary. Adhere to all rules from the FCS VOCABULARY CREATOR documentation exactly. Pay close attention to word counts, grammar for the specified level, and the required sentence structures (e.g., "Here is the..." for nouns). You MUST generate around 30-35 words. The output MUST be ready to display directly in a browser.\n\n`
-             + `--- USER INPUT ---\nTopic: ${topicEl.value}\nLevel: ${$('v-level').value}\n... (rest of the inputs)`;
-
-            // --- The main generation logic ---
-            // A simplified version of what would happen inside generateResult
-            const vocabularyByPOS = await callAndParseVocab(prompt); // Custom function now
-            if (vocabularyByPOS) {
-                // Populate tables from the parsed data
-                // Show buttons
-                allGeneratedWords = flattenVocabData(vocabularyByPOS);
-                if (allGeneratedWords.length > 0) {
-                    flashcardsBtn.style.display = 'inline-block';
-                    conversationBtn.style.display = 'inline-block';
-                }
-            }
+        function updateUI(){
+            const isCustom=tmodeEl.value==='custom'; const range=presetRanges[levelEl.value];
+            tminEl.disabled=!isCustom; tmaxEl.disabled=!isCustom;
+            if(!isCustom){tminEl.value=range.min;tmaxEl.value=range.max;}
+            presetTextEl.textContent=`Preset for ${levelTexts[levelEl.value]}: ${range.min}–${range.max} words.`;
+        }
+        tmodeEl.addEventListener('change',updateUI);levelEl.addEventListener('change',updateUI);
+        genBtn.addEventListener('click', ()=>{
+            const topicEl = $("v-topic");
+            if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
+            const prompt = `OUTPUT CONTRACT: You must respond with a single, complete HTML file with embedded styles. Do not include markdown or any commentary. Adhere to all rules from the FCS VOCABULARY CREATOR documentation exactly. Pay close attention to word counts, grammar for the specified level, and the required sentence structures (e.g., "Here is the..." for nouns). The output MUST be ready to display directly in a browser. Here is the User Input:\n\nTopic: ${topicEl.value}\nLevel: ${levelEl.value}\nTotal Words Mode: ${tmodeEl.value}\nMin Words: ${tminEl.value}\nMax Words: ${tmaxEl.value}\nVocabulary to Include: ${$('v-vocab-include').value || 'None'}`;
+            generateResult(prompt, genBtn, statusEl, outputEl);
         });
-        
+        copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));updateUI();
+    })();
+    
+    // --- CONVERSATION GENERATOR ---
+    (function setupConvo(){
+        const genBtn=$('c-gen'),copyBtn=$('c-copy'),statusEl=$('c-status'),outputEl=$('c-output');
+        genBtn.addEventListener('click', ()=>{
+            const topicEl = $('c-topic');
+            if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
+            const prompt = `OUTPUT CONTRACT: You must respond with a single, complete HTML file with embedded styles. Do not include markdown or any commentary. Adhere to all rules from the FCS CONVERSATION CREATOR documentation exactly. Key Rules: Format conversations and practices in two columns. Bold and color vocabulary. Keep grammar strictly within the specified level. Use the ________ (ENGLISH) format for Fill-in-the-Blanks. The output MUST be ready to display directly in a browser. Here is the User Input:\n\nTopic: ${topicEl.value}\nLevel: ${$('c-level').value}\nVocabulary List: ${$('c-vocab').value||"auto"}\nNum Convos: ${$('c-numConvos').value}\nNum Speakers: ${$('c-numSpeakers').value}\nAdd FIB: ${$('c-addFib').value}\nFIB Focus: ${$('c-fibFocus').value}\nTone: ${$('c-tone').value}`;
+            generateResult(prompt, genBtn, statusEl, outputEl);
+        });
+        copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     })();
 
-    async function callAndParseVocab(prompt){
-        // this would be inside your generateResult function, simplified here
-        const response = await callAI(prompt);
-        // We'd need to parse the returned HTML table back into a JSON object to use for flashcards,
-        // which is complex. A better way is to change what the AI returns.
-        
-        // This is a placeholder showing the structure we need
-        return {
-            "nouns": [ { "spanish": "el aeropuerto", "english": "the airport", "exampleSpanish": "...", "exampleEnglish": "...", "dialogue": { "spanish": "...", "english": "..." } } ],
-            "verbs": [ /* ... */ ]
-        };
-    }
-    function flattenVocabData(vocabJSON) {
-        let allWords = [];
-        for (const key in vocabJSON) {
-            allWords = allWords.concat(vocabJSON[key]);
-        }
-        return allWords;
-    }
-
-    // --- All Modal Logic ---
-    function showCard(i){const c=allGeneratedWords[i];if(!c)return;$('flashcard-word').textContent=c.spanish;$('flashcard-translation').textContent=`(${c.english})`;$('flashcard-sentence-es').textContent=c.exampleSpanish;$('flashcard-sentence-en').textContent=c.exampleEnglish;$('flashcard-counter').textContent=`${i+1}/${allGeneratedWords.length}`}
-    function showConversation(i){const c=allGeneratedWords[i];if(!c)return;const d=$('conversation-display');$('conversation-word').textContent=c.spanish;$('conversation-translation').textContent=`(${c.english})`;if(c.dialogue&&c.dialogue.spanish){d.innerHTML=`<div><h4>Spanish</h4><p>${c.dialogue.spanish}</p></div><div><h4>English</h4><p>${c.dialogue.english}</p></div>`}else{d.innerHTML="<p>No conversation available.</p>"} $('conversation-counter').textContent=`${i+1}/${allGeneratedWords.length}`}
+    // --- TEST GENERATOR ---
+    (function setupTest(){
+        const genBtn=$('t-gen'),copyBtn=$('t-copy'),statusEl=$('t-status'),outputEl=$('t-output');
+        genBtn.addEventListener('click', ()=>{
+            const vocabEl = $('t-vocab');
+            if(!vocabEl.value.trim()){statusEl.textContent="Please paste a vocabulary list.";return;}
+            const prompt = `OUTPUT CONTRACT: Create a 3-part Spanish test. Produce the output as a single HTML file with embedded styles. Do not include markdown or commentary. Adhere to all rules from the FCS TEST CREATOR documentation precisely. Key Rules: Return ONLY raw HTML. Structure MUST be Part 1 (ES->EN), Part 2 (EN->ES), Part 3 (Oral Prompts). Use only the provided vocabulary and level-specific grammar. Place answer keys at the very end if requested. The output MUST be ready to display directly in a browser.\n\nLevel: ${$('t-level').value}\nInclude Answer Keys: ${$('t-anskeys').checked}\nVocabulary List:\n${vocabEl.value}`;
+            generateResult(prompt, genBtn, statusEl, outputEl);
+        });
+        copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
+    })();
     
-    flashcardsBtn.addEventListener('click',()=>{const modal = $('flashcard-modal'); modal.style.display='block';currentCardIndex=0;showCard(currentCardIndex);});
-    conversationBtn.addEventListener('click',()=>{const modal = $('conversation-modal'); modal.style.display='block';currentConversationIndex=0;showConversation(currentConversationIndex);});
-
-    document.querySelectorAll('.ai-modal-close-btn').forEach(btn=>{btn.onclick=()=>{btn.closest('.ai-modal').style.display='none';}});
-    window.onclick=e=>{if(e.target.classList.contains('ai-modal')){e.target.style.display='none'}};
-
-    $('flashcard-next').onclick=()=>{currentCardIndex=(currentCardIndex+1)%allGeneratedWords.length;showCard(currentCardIndex);};
-    $('flashcard-prev').onclick=()=>{currentCardIndex=(currentCardIndex-1+allGeneratedWords.length)%allGeneratedWords.length;showCard(currentCardIndex);};
-    $('conversation-next').onclick=()=>{currentConversationIndex=(currentConversationIndex+1)%allGeneratedWords.length;showConversation(currentConversationIndex);};
-    $('conversation-prev').onclick=()=>{currentConversationIndex=(currentConversationIndex-1+allGeneratedWords.length)%allGeneratedWords.length;showConversation(currentConversationIndex);};
-
 })();
 </script>
-
 </body>
 </html>
