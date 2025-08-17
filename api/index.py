@@ -23,21 +23,21 @@ def handler():
                 return add_cors_headers(jsonify({"error": "Server configuration error."})), 500
             
             data = request.get_json()
-            prompt = data.get("prompt")
+            prompt = data.get("prompt") # The entire detailed prompt comes from the frontend now
             
             client = OpenAI(api_key=api_key)
             completion = client.chat.completions.create(
-                model="gpt-4o-mini",
-                response_format={"type": "json_object"},
+                model="gpt-4o-mini", # Using a powerful and reliable model
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant for the Fast Conversational Spanish program. You must always respond with a valid JSON object with a single key 'result', where the value is the markdown text result."},
-                    {"role": "user", "content": json.dumps(prompt)}
+                    {"role": "system", "content": "You are a helpful assistant for the Fast Conversational Spanish program. You must follow all rules and formatting instructions exactly as provided in the prompt. Your final output should be the raw content (HTML or Markdown) as requested."},
+                    {"role": "user", "content": prompt}
                 ]
             )
             
-            ai_json_string = completion.choices[0].message.content
-            ai_response_dict = json.loads(ai_json_string)
-            response = jsonify(ai_response_dict)
+            # THE FIX: Return the AI's content directly
+            ai_content = completion.choices[0].message.content
+            
+            response = jsonify({"content": ai_content})
             response.status_code = 200
 
         except Exception as e:
