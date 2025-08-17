@@ -29,20 +29,23 @@ def handler():
             completion = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
-                    {"role": "system", "content": "You are an expert assistant for the Fast Conversational Spanish program. You must follow all rules provided by the user precisely. Your final output must be ONLY the raw content (HTML or Markdown) as requested, with absolutely no commentary, greetings, or extra text like ```html."},
+                    {"role": "system", "content": "You are an expert assistant for the Fast Conversational Spanish program. You must follow all rules provided by the user precisely. Your final output must be ONLY the raw content (HTML or Markdown) as requested, with absolutely no commentary or extra text."},
                     {"role": "user", "content": prompt}
                 ]
             )
             
             ai_content = completion.choices[0].message.content
             
-            if "```html" in ai_content:
-                ai_content = ai_content.split("```html")[1].split("```")[0].strip()
-            elif "```" in ai_content:
-                 ai_content = ai_content.split("```")[1].strip()
-
-
-            response = jsonify({"content": ai_content})
+            if "```" in ai_content:
+                # Find the first code block and extract its content
+                parts = ai_content.split("```")
+                if len(parts) > 1:
+                    ai_content = parts[1]
+                    # remove the language identifier if present (e.g., html, markdown)
+                    if ai_content.startswith(('html', 'markdown')):
+                        ai_content = ai_content.split('\n', 1)[1]
+            
+            response = jsonify({"content": ai_content.strip()})
             response.status_code = 200
 
         except Exception as e:
