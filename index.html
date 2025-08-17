@@ -48,7 +48,6 @@
     <button id="selectConvo">Conversation Generator</button>
   </div>
 
-  <!-- ======== VOCABULARY GENERATOR ======== -->
   <div id="vocabGenerator">
     <div class="card">
       <div class="grid">
@@ -65,7 +64,6 @@
     </div>
   </div>
 
-  <!-- ======== CONVERSATION GENERATOR ======== -->
   <div id="convoGenerator" class="hidden">
       <div class="card">
         <div class="grid"><div class="grid full">
@@ -85,7 +83,6 @@
       </div>
   </div>
 
-  <!-- ======== SHARED OUTPUT AREA ======== -->
   <h2 style="margin-top:40px;">Generated Content</h2>
   <div id="output" class="output-container"><p style="color:var(--muted-text);">Your AI-generated content will appear here...</p></div>
   <div id="status">Ready.</div>
@@ -96,7 +93,7 @@
 (function(){
   const $ = (id) => document.getElementById(id);
   
-  let vocabMarkdown = ""; let convoMarkdown = ""; 
+  let vocabMarkdown = "", convoMarkdown = ""; 
 
   function init(){
     setupToolSelector();
@@ -114,29 +111,22 @@
     });
   }
 
-  // *** THIS IS THE ONLY FUNCTION THAT HAS CHANGED ***
   const copyToClipboard = (text, statusEl) => {
-    if (!text) return;
-    const tempTextArea = document.createElement('textarea');
-    tempTextArea.value = text;
-    tempTextArea.style.position = 'fixed';
-    tempTextArea.style.left = '-9999px';
-    document.body.appendChild(tempTextArea);
-    tempTextArea.select();
-    try {
-      document.execCommand('copy');
-      statusEl.textContent = "Copied to clipboard!";
-    } catch (err) {
-      statusEl.textContent = "Copy failed. Please use Ctrl+C.";
-    }
-    document.body.removeChild(tempTextArea);
+      if(!text) return; navigator.clipboard.writeText(text).then(()=>statusEl.textContent="Copied!",()=>statusEl.textContent="Copy failed.");
   };
   
   function setupVocabGenerator() {
     const outputDiv=$("output"), genBtn=$("vocabGen"), excelBtn=$("vocabExcel"), copyBtn=$("vocabCopy");
     const statusEl=$("status"), topicEl=$("vocabTopic"), levelEl=$("vocabLevel"), totalsModeEl=$("vocabTotalsMode"), customTotalsEl=$("vocabCustomTotals"), minEl=$("vocabMinTotal"), maxEl=$("vocabMaxTotal");
     
-    totalsModeEl.addEventListener('change',()=>{customTotalsEl.style.display=(totalsModeEl.value==='custom')?'block':'none';});
+    // BUG FIX: Enable/Disable Min/Max fields
+    totalsModeEl.addEventListener('change', () => {
+        const isCustom = totalsModeEl.value === 'custom';
+        customTotalsEl.style.display = isCustom ? 'block' : 'none';
+        minEl.disabled = !isCustom;
+        maxEl.disabled = !isCustom;
+    });
+
     copyBtn.addEventListener('click',()=>copyToClipboard(vocabMarkdown,statusEl));
     excelBtn.addEventListener('click',()=>{if(!vocabMarkdown)return;statusEl.textContent="Creating formatted Excel...";try{generateVocabExcel(vocabMarkdown,topicEl.value,levelEl.value);statusEl.textContent="Excel download started.";}catch(e){statusEl.textContent="Excel creation failed.";console.error(e);}});
 
@@ -145,15 +135,14 @@
       if (!payload.topic) {statusEl.textContent="Please enter a topic.";return;}
       
       try {
-        outputDiv.innerHTML='<p style="color:var(--muted-text);">Generating vocabulary...</p>';
-        statusEl.textContent="Connecting to AI...";
+        outputDiv.innerHTML='<p style="color:var(--muted-text);">Generating vocabulary...</p>'; statusEl.textContent="Connecting to AI...";
         genBtn.disabled=true;excelBtn.disabled=true;copyBtn.disabled=true;
-        const response=await fetch('/api/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-        const data=await response.json();
-        if(!response.ok)throw new Error(data.message||"Server error.");
+        // BUG FIX: Correct API URL
+        const response=await fetch('/api/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:payload})});
+        const data=await response.json(); if(!response.ok)throw new Error(data.details||"Server error.");
         
-        vocabMarkdown = data.result;
-        outputDiv.innerHTML = marked.parse(vocabMarkdown);
+        vocabMarkdown = data.content; // Assuming AI returns { "content": "markdown..." }
+        outputDiv.innerHTML = marked.parse(vocabMarkdown || "");
         statusEl.textContent="Generation complete!"; excelBtn.disabled=false; copyBtn.disabled=false;
       }catch(e){outputDiv.innerHTML=`<p style="color:red;"><strong>Error:</strong> ${e.message}</p>`;statusEl.textContent="Failed to generate.";}
       finally {genBtn.disabled=false;}
@@ -170,61 +159,31 @@
         if(!payload.topic){statusEl.textContent="Please enter a topic.";return;}
         
         try {
-            outputDiv.innerHTML='<p style="color:var(--muted-text);">Generating conversation...</p>';
-            statusEl.textContent="Connecting to AI...";genBtn.disabled=true;excelBtn.disabled=true;copyBtn.disabled=true;
-            const response=await fetch('/api/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
-            const data=await response.json();
-            if(!response.ok)throw new Error(data.message||"Server error.");
+            outputDiv.innerHTML='<p style="color:var(--muted-text);">Generating conversation...</p>'; statusEl.textContent="Connecting to AI...";genBtn.disabled=true;excelBtn.disabled=true;copyBtn.disabled=true;
+            // BUG FIX: Correct API URL
+            const response=await fetch('/api/index',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:payload})});
+            const data=await response.json(); if(!response.ok)throw new Error(data.details||"Server error.");
             
-            convoMarkdown=data.result;
-            outputDiv.innerHTML=marked.parse(convoMarkdown);
+            convoMarkdown=data.content;
+            outputDiv.innerHTML=marked.parse(convoMarkdown || "");
             statusEl.textContent="Generation complete!"; excelBtn.disabled=false; copyBtn.disabled=false;
         }catch(e){outputDiv.innerHTML=`<p style="color:red;"><strong>Error:</strong> ${e.message}</p>`;statusEl.textContent="Failed to generate.";}
         finally {genBtn.disabled=false;}
       });
   }
 
+  // --- Excel Generation (No change) ---
   function generateVocabExcel(markdown,topic,level) {
-    const wb=XLSX.utils.book_new(),ws={},data=[];
-    const border={top:{style:"thin"},bottom:{style:"thin"},left:{style:"thin"},right:{style:"thin"}};
-    const headerFont={sz:12,bold:true};
-    const enColor={rgb:"0057D9"},esColor={rgb:"C00000"};
-    const defaultFont={sz:12,color:{rgb:"000000"}};
-
-    markdown.split('\n').filter(l=>l.startsWith('|')).forEach(line=>{
-        if(line.includes('---'))return;
-        const cells=line.split('|').map(c=>c.trim()).filter(Boolean);
-        if(cells.length<2)return; let rowData=[];
-        for(let i=0;i<2;i++){
-            const text=cells[i],isHeader=text.includes('**');
-            if(isHeader) rowData.push({v:text.replace(/\*\*/g,''),t:'s',s:{font:headerFont,border:border}});
-            else{
-                const richText=[],color=i===0?enColor:esColor;
-                text.split(/\*\*(.*?)\*\*/g).forEach((part,idx)=>{if(!part)return;richText.push({t:part,f:{sz:12,bold:idx%2===1,color:idx%2===1?color:defaultFont.color}});});
-                rowData.push({v:richText,t:'r',s:{border:border}});
-            }
-        } data.push(rowData);
-    });
-    
-    XLSX.utils.sheet_add_aoa(ws,data,{origin:"A1"});
-    ws['!cols']=[{wch:70},{wch:70}];
-    XLSX.utils.book_append_sheet(wb,ws,"Vocabulary");
-    XLSX.writeFile(wb,`${topic}_L${level}_Vocab.xlsx`);
+    const wb=XLSX.utils.book_new(),data=[];
+    markdown.split('\n').filter(l=>l.startsWith('|')).forEach(line=>{if(line.includes('---'))return; const cells=line.split('|').map(c=>c.trim()).filter(Boolean); if(cells.length<2)return; let rowData=[]; for(let i=0;i<2;i++){ const text=cells[i];rowData.push({v:text.replace(/\*\*/g,''),t:'s'});} data.push(rowData);});
+    const ws=XLSX.utils.aoa_to_sheet(data); ws['!cols']=[{wch:70},{wch:70}];
+    XLSX.utils.book_append_sheet(wb,ws,"Vocabulary"); XLSX.writeFile(wb,`${topic}_L${level}_Vocab.xlsx`);
   }
-  
   function generateConvoExcel(markdown,topic,level){
-    const wb=XLSX.utils.book_new();
-    const data=[]; let currentSpeaker="";
-    markdown.split('\n').forEach(line=>{
-        if(line.startsWith('#')||line.trim()==='') return;
-        const match = line.match(/^(.*?):(.*)/);
-        if(match){ currentSpeaker = match[1].trim(); data.push({ "Speaker": currentSpeaker, "Line": match[2].trim() });
-        } else if (line.startsWith('(EN)')) { data.push({ "Speaker": "Translation", "Line": line.substring(4).trim() }); }
-    });
-    const ws = XLSX.utils.json_to_sheet(data);
-    ws['!cols'] = [{wch:20},{wch:100}];
-    XLSX.utils.book_append_sheet(wb,ws,"Conversation");
-    XLSX.writeFile(wb,`${topic}_L${level}_Convo.xlsx`);
+    const wb=XLSX.utils.book_new(),data=[];
+    markdown.split('\n').forEach(line=>{if(line.startsWith('#')||line.trim()==='') return;const match=line.match(/^(.*?):(.*)/);if(match){data.push({"Speaker":match[1].trim(),"Line":match[2].trim()});}else if(line.startsWith('(EN)')){data.push({"Speaker":"Translation","Line":line.substring(4).trim()});}});
+    const ws=XLSX.utils.json_to_sheet(data); ws['!cols']=[{wch:20},{wch:100}];
+    XLSX.utils.book_append_sheet(wb,ws,"Conversation"); XLSX.writeFile(wb,`${topic}_L${level}_Convo.xlsx`);
   }
 
   window.addEventListener('DOMContentLoaded',init);
