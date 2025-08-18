@@ -6,7 +6,7 @@
 <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 <style>
   :root { --bg:#f7f9fc; --fg:#111; --muted:#667085; --border:#e5e7eb; --panel:#ffffff; --accent:#0b5cff;
-          --en:#1a73e8; --es:#d93025; --head:#0f172a; }
+          --en:#1a73e8; --es:#d93025; --head:#0f172a; --chip:#eef2ff; --chipText:#1e3a8a; }
   body { background: var(--bg); color: var(--fg); font-family: Calibri, Arial, sans-serif; font-size: 15px; margin:0; }
   .fcs-wrap { max-width: 980px; margin: 28px auto; padding: 0 16px; }
   h1 { font-size: 28px; font-weight:700; text-align:center; margin-bottom: 28px; color: var(--head);}
@@ -33,7 +33,7 @@
   .output-container th, .output-container td { border:1px solid #e5e7eb; padding:8px; vertical-align:top; }
   .output-container th { background: #f5f7fb; }
   .output-container tr:nth-child(even) td { background: #fafafa; }
-  .output-container .en { color: var(--en); font-weight: bold; } 
+  .output-container .en { color: var(--en); font-weight: bold; }
   .output-container .es { color: var(--es); font-weight: bold; }
   @media (max-width: 860px){ .six, .twelve { grid-column: span 12; } .grid-2{grid-template-columns:1fr;} }
 </style>
@@ -64,22 +64,136 @@
     t.forEach(o=>{o.addEventListener("click",()=>{const n=o.id.replace("tab-","gen-");t.forEach(t=>t.classList.remove("primary")),o.classList.add("primary"),e.forEach(t=>{t.style.display=t.id===n?"block":"none"})})})
   })();
 
-  async function generateResult(prompt,button,statusEl,outputEl){
-    button.disabled=!0;
-    statusEl.textContent="Generating... This can take up to a minute.";
-    outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
+  // ---- helpers ----------------------------------------------------
+  async function callAPI(prompt){
+    const resp=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
+    const json=await resp.json();
+    if(!resp.ok) throw new Error(json.details||json.error||"Unknown server error.");
+    return json.content;
+  }
+  function parseManifest(html){
+    const m = html.match(/<script[^>]*id=["']fcs_manifest["'][^>]*>([\s\S]*?)<\/script>/i);
+    if(!m) return null;
+    try { return JSON.parse(m[1]); } catch { return null; }
+  }
+
+  // --- validators (return array of error strings; empty = ok) ------
+  function validateVocab(manifest, inputs){
+    const errs=[];
+    if(!manifest) return ["Missing fcs_manifest."];
+    const L = String(inputs.level);
+    // level caps
+    const caps = {
+      "1": {N:[0,35], V:[0,15], D:[0,12], Q:[0,8], P:[0,12]},
+      "2": {N:[30,55], V:[12,20], D:[10,18], Q:[7,12], P:[10,18]},
+      "3": {N:[50,75], V:[18,30], D:[18,28], Q:[12,18], P:[15,25]},
+      "4": {N:[70,999], V:[25,999], D:[25,999], Q:[18,999], P:[25,999]},
+      "5": {N:[90,999], V:[30,999], D:[30,999], Q:[25,999], P:[35,999]}
+    };
+    const r = caps[L];
+    function inRange(v,[a,b]){ return typeof v==="number" && v>=a && v<=b; }
+    if(!inRange(manifest.counts?.nouns, r.N)) errs.push(`Nouns must be ${r.N[0]}–${r.N[1]}. Got ${manifest.counts?.nouns}.`);
+    if(!inRange(manifest.counts?.verbs, r.V)) errs.push(`Verbs must be ${r.V[0]}–${r.V[1]}. Got ${manifest.counts?.verbs}.`);
+    if(!inRange(manifest.counts?.descriptive, r.D)) errs.push(`Descriptive must be ${r.D[0]}–${r.D[1]}. Got ${manifest.counts?.descriptive}.`);
+    if(!inRange(manifest.counts?.questions, r.Q)) errs.push(`Questions must be ${r.Q[0]}–${r.Q[1]}. Got ${manifest.counts?.questions}.`);
+    if(!inRange(manifest.counts?.phrases, r.P)) errs.push(`Phrases must be ${r.P[0]}–${r.P[1]}. Got ${manifest.counts?.phrases}.`);
+    // total core words rule
+    const totalCore = (manifest.counts?.nouns||0)+(manifest.counts?.verbs||0)+(manifest.counts?.descriptive||0);
+    const min = inputs.mode==='custom' ? Number(inputs.min) : inputs.preset.min;
+    const max = inputs.mode==='custom' ? Number(inputs.max) : inputs.preset.max;
+    if(!(totalCore>=min && totalCore<=max)) errs.push(`Total (N+V+D) must be ${min}–${max}. Got ${totalCore}.`);
+    return errs;
+  }
+  function validateConvo(manifest, inputs){
+    const errs=[];
+    if(!manifest) return ["Missing fcs_manifest."];
+    if(manifest.conversations !== Number(inputs.numConvos)) errs.push(`Conversations must be ${inputs.numConvos}. Got ${manifest.conversations}.`);
+    if(manifest.speakers !== Number(inputs.numSpeakers)) errs.push(`Speakers must be ${inputs.numSpeakers}. Got ${manifest.speakers}.`);
+    const wantEN = inputs.includeEN === "yes";
+    if(Boolean(manifest.includeEN)!==wantEN) errs.push(`Include English should be ${wantEN}.`);
+    const wantFIB = inputs.addFIB === "yes";
+    if(Boolean(manifest.hasFIB)!==wantFIB) errs.push(`Fill-in-the-Blank should be ${wantFIB}.`);
+    const wantKey = inputs.showFIBKey === "yes";
+    if(Boolean(manifest.hasFIBKey)!==wantKey) errs.push(`FIB Answer Key should be ${wantKey}.`);
+    const wantVocab = inputs.showVocabList === "yes";
+    if(Boolean(manifest.hasVocabList)!==wantVocab) errs.push(`Vocabulary list should be ${wantVocab}.`);
+    // turn target (allow ±20%)
+    const tgt = Number(inputs.turns)||0;
+    if(Array.isArray(manifest.turnsPerConversation)){
+      manifest.turnsPerConversation.forEach((t,i)=>{
+        if(!(t>=Math.floor(0.8*tgt) && t<=Math.ceil(1.2*tgt))){
+          errs.push(`Conversation ${i+1}: turns should be ≈${tgt} (±20%). Got ${t}.`);
+        }
+      });
+    }
+    return errs;
+  }
+  function validateTest(manifest, inputs){
+    const errs=[];
+    if(!manifest) return ["Missing fcs_manifest."];
+    if(manifest.level !== Number(inputs.level)) errs.push(`Level must be ${inputs.level}. Got ${manifest.level}.`);
+    const wantKeys = !!inputs.anskeys;
+    if(Boolean(manifest.answerKeys)!==wantKeys) errs.push(`Answer keys should be ${wantKeys}.`);
+    // require all three parts present with at least 8 items each (soft)
+    ["part1","part2","part3"].forEach(p=>{
+      if(typeof manifest[p]!=="number" || manifest[p]<8) errs.push(`${p} should have at least 8 items.`);
+    });
+    return errs;
+  }
+
+  function buildRepair(kind, inputs, manifest, errors){
+    return `
+VALIDATOR_FEEDBACK:
+- You MUST regenerate the entire HTML using the same CSS skeleton from the original prompt.
+- Include <script id="fcs_manifest" type="application/json"> with accurate values.
+
+Violations:
+${errors.map(e=>"• "+e).join("\n")}
+
+Expected settings:
+${kind==="vocab" ? `
+  level=${inputs.level}, totalWordsMode=${inputs.mode}, min=${inputs.min||inputs.preset.min}, max=${inputs.max||inputs.preset.max}
+` : kind==="convo" ? `
+  conversations=${inputs.numConvos}, speakers=${inputs.numSpeakers}, turns≈${inputs.turns}, includeEN=${inputs.includeEN},
+  addFIB=${inputs.addFIB}, showFIBKey=${inputs.showFIBKey}, showVocabList=${inputs.showVocabList}, tone=${inputs.tone}, country=${inputs.country}
+` : `
+  level=${inputs.level}, includeAnswerKeys=${inputs.anskeys}
+`}
+REQUIREMENTS:
+- Fix counts to match level and settings exactly.
+- Keep the tables and styling intact.
+- Do NOT add commentary. Output ONLY the corrected full HTML document.`;
+  }
+
+  async function generateValidated(kind, prompt, inputs, button, statusEl, outputEl){
+    button.disabled = true;
+    statusEl.textContent = "Generating...";
+    outputEl.innerHTML = "<h4>Please wait. AI is working...</h4>";
     try{
-      const resp=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
-      const json=await resp.json();
-      if(!resp.ok) throw new Error(json.details||json.error||"Unknown server error.");
-      outputEl.innerHTML=json.content;
-      statusEl.textContent="Success!";
+      // 1st try
+      let html = await callAPI(prompt);
+      let manifest = parseManifest(html);
+      let errors = (kind==="vocab") ? validateVocab(manifest, inputs)
+                 : (kind==="convo") ? validateConvo(manifest, inputs)
+                 : validateTest(manifest, inputs);
+
+      if(errors.length>0){
+        // 2nd try with validator feedback
+        const repair = buildRepair(kind, inputs, manifest, errors);
+        const repairedPrompt = prompt + "\n\n" + repair;
+        html = await callAPI(repairedPrompt);
+        manifest = parseManifest(html);
+        errors = (kind==="vocab") ? validateVocab(manifest, inputs)
+               : (kind==="convo") ? validateConvo(manifest, inputs)
+               : validateTest(manifest, inputs);
+      }
+      outputEl.innerHTML = html;
+      statusEl.textContent = (errors.length===0) ? "Success!" : "Generated with minor issues (see content).";
     }catch(err){
-      console.error("Error:",err);
-      outputEl.innerHTML=`<p style="color:red;"><strong>Error:</strong> ${err.message}</p>`;
-      statusEl.textContent="Error occurred.";
+      outputEl.innerHTML = `<p style="color:red;"><strong>Error:</strong> ${err.message}</p>`;
+      statusEl.textContent = "Error occurred.";
     }finally{
-      button.disabled=!1;
+      button.disabled = false;
     }
   }
 
@@ -89,7 +203,6 @@
     }
     navigator.clipboard.writeText(container.innerText).then(()=>statusEl.textContent="Copied!",()=>statusEl.textContent="Copy failed.");
   }
-
   function downloadAsExcel(container,statusEl,filename){
     if(!container.querySelector("table")){statusEl.textContent="No data to export.";return}
     try{
@@ -110,10 +223,10 @@
       XLSX.utils.book_append_sheet(wb,ws,"Generated Content");
       XLSX.writeFile(wb,`${(filename||'Export').replace(/\s+/g,"_")}.xlsx`);
       statusEl.textContent="Download started.";
-    }catch(e){console.error("Excel Error:",e); statusEl.textContent="Failed to create Excel."}
+    }catch(e){statusEl.textContent="Failed to create Excel."}
   }
 
-  // ---------- VOCABULARY ----------
+  // ---------- VOCAB ----------
   (function setupVocab(){
     const vocabUI=`
       <div class="fcs-card">
@@ -169,11 +282,18 @@
     }
     tmodeEl.addEventListener('change',updateUI); levelEl.addEventListener('change',updateUI); updateUI();
 
-    genBtn.addEventListener('click', ()=>{
+    genBtn.addEventListener('click', async ()=>{
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
+      const mode=tmodeEl.value, preset=presetRanges[levelEl.value];
+      const inputs = {
+        level: Number(levelEl.value),
+        mode,
+        min: tminEl.value, max: tmaxEl.value, preset,
+        include: vocabIncludeEl.value || ''
+      };
       const prompt =
 `<!DOCTYPE html>
-<!-- FCS VOCABULARY OUTPUT -->
+<!-- FCS VOCABULARY OUTPUT: Use EXACT CSS & structure. Include fcs_manifest. -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Vocabulary — ${topicEl.value}</title>
 <style>
@@ -183,48 +303,42 @@
   h1{font-size:20pt;text-align:center;color:var(--h);margin:0 0 12px 0}
   h2{font-size:13pt;color:var(--h);margin:16px 0 8px 0;text-align:center}
   .section{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px}
-  .legend{font-size:9pt;color:var(--muted);text-align:center;margin:6px 0 0 0}
   .tbl{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
   .tbl th,.tbl td{border:1px solid var(--border);padding:6px;vertical-align:top}
   .tbl th{background:#f5f7fb;font-weight:700}
   .tbl tr:nth-child(even) td{background:#fafafa}
   .en{color:var(--en);font-weight:700} .es{color:var(--es);font-weight:700}
   .subcategory{background:#eef2ff;font-weight:700;text-align:left}
-  .badge{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:#f8fafc;font-size:9pt;margin:6px}
-  .note{font-size:9pt;color:var(--muted)}
-  @media(max-width:700px){ .tbl{font-size:9pt} }
 </style></head>
 <body><div class="fcs-doc" lang="en">
   <h1>Vocabulary: ${topicEl.value} — ${levelTexts[levelEl.value]}</h1>
-  <div class="legend">
-    <span class="badge"><span class="en">English</span> / <span class="es" lang="es">Español</span></span>
-    <span class="badge">Every row includes a concise definition or example sentence.</span>
-  </div>
 
-  <!-- RULES THE MODEL MUST FOLLOW -->
+  <!-- RULES -->
   <!--
-    SECTION ORDER (fixed): Nouns, Verbs, Descriptive Words, Common Phrases, Common Questions
-    COLUMNS (fixed): English | Spanish | Definition / Example
-    - Alphabetize each section by the English term (ignore “to ” for verbs).
-    - In all example sentences, wrap target words with <span class="en"> / <span class="es">.
-    - Show helpful subcategory label rows (e.g., Transportation, People) as: 
+    Section order: Nouns, Verbs, Descriptive Words, Common Phrases, Common Questions.
+    Each section is a TABLE with columns: English | Español | Definition / Example.
+    Alphabetize by English (ignore 'to ' for verbs). Add useful subcategory rows using:
       <tr><td class="subcategory" colspan="3">Nouns — Transportation</td></tr>
-    - Level caps (strict):
-      L1: Nouns ≤35, Verbs ≤15, Descriptive ≤12, Questions ≤8, Phrases ≤12
-      L2: Nouns 30–55, Verbs 12–20, Descriptive 10–18, Questions 7–12, Phrases 10–18
-      L3: Nouns 50–75, Verbs 18–30, Descriptive 18–28, Questions 12–18, Phrases 15–25
-      L4: Nouns ≥70, Verbs ≥25, Descriptive ≥25, Questions ≥18, Phrases ≥25
-      L5: Nouns ≥90, Verbs ≥30, Descriptive ≥30, Questions ≥25, Phrases ≥35
-    - Total words (Nouns+Verbs+Descriptive) must be within: mode=${tmodeEl.value}, min=${tminEl.value||'auto'}, max=${tmaxEl.value||'auto'}.
-    - If user provided “Vocabulary to Include”, ensure those appear (use best-fit section).
-    - Use simple, student-friendly definitions (or a short example sentence when clearer).
+    Include user-provided words where possible: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.
+    STRICT LEVEL LIMITS:
+      L1: N≤35, V≤15, D≤12, Q≤8, P≤12
+      L2: N30–55, V12–20, D10–18, Q7–12, P10–18
+      L3: N50–75, V18–30, D18–28, Q12–18, P15–25
+      L4: N≥70, V≥25, D≥25, Q≥18, P≥25
+      L5: N≥90, V≥30, D≥30, Q≥25, P≥35
+    TOTAL CORE WORDS (N+V+D) must be within: mode=${mode}, min=${inputs.min||preset.min}, max=${inputs.max||preset.max}.
+    Output ONLY valid HTML. DO NOT remove the CSS.
+    Include a manifest script with counts:
+      <script id="fcs_manifest" type="application/json">
+      {"type":"vocab","level":${levelEl.value},"counts":{"nouns":0,"verbs":0,"descriptive":0,"phrases":0,"questions":0}}
+      </script>
   -->
 
   <div class="section">
     <h2>Nouns / Sustantivos</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th><th>Definition / Example</th></tr></thead>
-      <tbody><!-- MODEL: insert noun rows and subcategories here --></tbody>
+      <tbody><!-- INSERT NOUN ROWS --></tbody>
     </table>
   </div>
 
@@ -232,16 +346,15 @@
     <h2>Verbs / Verbos</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th><th>Definition / Example</th></tr></thead>
-      <tbody><!-- MODEL: insert verb rows here --></tbody>
+      <tbody><!-- INSERT VERB ROWS --></tbody>
     </table>
-    <div class="note">Tip: Keep example sentences in present/simple structures to emphasize infinitives.</div>
   </div>
 
   <div class="section">
     <h2>Descriptive Words / Palabras descriptivas</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th><th>Definition / Example</th></tr></thead>
-      <tbody><!-- MODEL: insert adjectives/adverbs here --></tbody>
+      <tbody><!-- INSERT ADJ/ADV ROWS --></tbody>
     </table>
   </div>
 
@@ -249,7 +362,7 @@
     <h2>Common Phrases / Frases comunes</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th><th>Meaning / Example</th></tr></thead>
-      <tbody><!-- MODEL: insert phrases here --></tbody>
+      <tbody><!-- INSERT PHRASES --></tbody>
     </table>
   </div>
 
@@ -257,13 +370,13 @@
     <h2>Common Questions / Preguntas comunes</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th><th>Sample Answer</th></tr></thead>
-      <tbody><!-- MODEL: insert Q&A here --></tbody>
+      <tbody><!-- INSERT QA --></tbody>
     </table>
   </div>
 
-  <div class="note">Included terms from user: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.</div>
+  <script id="fcs_manifest" type="application/json">{"type":"vocab","level":${levelEl.value},"counts":{"nouns":0,"verbs":0,"descriptive":0,"phrases":0,"questions":0}}</script>
 </div></body></html>`;
-      generateResult(prompt,genBtn,statusEl,outputEl);
+      generateValidated("vocab", prompt, inputs, genBtn, statusEl, outputEl);
     });
 
     $('v-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
@@ -304,13 +417,31 @@
 
     genBtn.addEventListener('click', ()=>{
       if(!$('c-topic').value.trim()){statusEl.textContent="Enter a topic.";return;}
+      const inputs = {
+        topic: $('c-topic').value,
+        level: Number($('c-level').value),
+        vocab: $('c-vocab').value || "",
+        numConvos: Number($('c-numConvos').value),
+        numSpeakers: Number($('c-numSpeakers').value),
+        minutes: Number($('c-minutes').value),
+        turns: Number($('c-turns').value),
+        tone: $('c-tone').value,
+        country: $('c-country').value,
+        includeEN: $('c-includeEN').value,
+        addFIB: $('c-addFib').value,
+        fibFocus: $('c-fibFocus').value,
+        showFIBKey: $('c-showFIBKey').value,
+        showVocabList: $('c-showVocabList').value,
+        notes: $('c-notes').value
+      };
+
       const prompt =
 `<!DOCTYPE html>
-<!-- FCS CONVERSATION OUTPUT -->
+<!-- FCS CONVERSATION OUTPUT: Use EXACT CSS & structure. Include fcs_manifest. -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Conversation — ${$('c-topic').value}</title>
+<title>Conversation — ${inputs.topic}</title>
 <style>
-  :root{--ink:#111;--muted:#667085;--border:#e5e7eb;--panel:#ffffff;--bg:#ffffff;--en:#1a73e8;--es:#d93025;--h:#0f172a}
+  :root{--ink:#111;--muted:#667085;--border:#e5e7eb;--panel:#ffffff;--bg:#ffffff;--en:#1a73e8;--es:#d93025;--h:#0f172a;--chip:#eef2ff;--chipText:#1e3a8a}
   *{box-sizing:border-box} body{font-family:Calibri,Arial,sans-serif;font-size:10pt;color:var(--ink);background:var(--bg);margin:0}
   .fcs-doc{max-width:980px;margin:0 auto;padding:24px}
   h1{font-size:20pt;text-align:center;color:var(--h);margin:0 0 12px 0}
@@ -320,57 +451,61 @@
   .tbl th,.tbl td{border:1px solid var(--border);padding:8px;vertical-align:top}
   .tbl th{background:#f5f7fb;font-weight:700}
   .tbl tr:nth-child(even) td{background:#fafafa}
-  .en{color:var(--en);font-weight:700}
-  .es{color:var(--es);font-weight:700}
+  .chip{display:inline-block;background:var(--chip);color:var(--chipText);border-radius:999px;padding:2px 8px;font-weight:700;margin-right:6px}
+  .en{color:var(--en);font-weight:700} .es{color:var(--es);font-weight:700}
   .note{font-size:9pt;color:var(--muted)}
   @media(max-width:700px){
-    .tbl{font-size:9pt}
     .tbl thead{display:none}
     .tbl td{display:block;width:100%}
     .tbl td+td{margin-top:6px}
   }
 </style></head>
 <body><div class="fcs-doc">
-  <h1>Conversation: ${$('c-topic').value} — Level ${$('c-level').value}</h1>
+  <h1>Conversation: ${inputs.topic} — Level ${inputs.level}</h1>
 
-  <!-- MODEL MUST FOLLOW:
-    - Create ${$('c-numConvos').value} conversation(s), ${$('c-numSpeakers').value} speaker(s), ~${$('c-minutes').value} min, ~${$('c-turns').value} turns.
-    - Tone: ${$('c-tone').value}; Country/Region: ${$('c-country').value}
-    - If Include English Translation = ${$('c-includeEN').value}, left column is English and right column is Spanish; else output only Spanish in right column with English column omitted.
-    - Bold target vocabulary within lines using <span class="en">English</span> and <span class="es" lang="es">Español</span>.
-    - Use a TABLE with two columns: English | Spanish.
-    - Label speakers clearly (A:, B:, C:).
-    - If Add Fill-In-The-Blank = ${$('c-addFib').value}, generate a PRACTICE section with ${$('c-fibFocus').value} focus. Use blanks like ________ (ENGLISH HINT). 
-    - If Show FIB Answer Key = ${$('c-showFIBKey').value}, include an Answer Key section at end.
-    - If Show Vocabulary List = ${$('c-showVocabList').value}, add a mini table (English | Spanish) of used vocabulary.
-    - Respect grammar for Level ${$('c-level').value}.
-    - Use any user vocabulary (if provided) strictly: ${$('c-vocab').value ? 'User provided list below' : 'No custom vocabulary provided'}.
+  <!-- REQUIREMENTS (enforced by validator):
+    Conversations: ${inputs.numConvos}; Speakers: ${inputs.numSpeakers}; Target Minutes: ${inputs.minutes}; Target Turns: ${inputs.turns}
+    Tone: ${inputs.tone}; Country/Region: ${inputs.country}
+    Include English Translation: ${inputs.includeEN}
+    Add FIB: ${inputs.addFIB}; FIB Focus: ${inputs.fibFocus}; Show FIB Answer Key: ${inputs.showFIBKey}; Show Vocabulary List: ${inputs.showVocabList}
+    If vocab provided, prefer it strictly: ${inputs.vocab ? 'YES' : 'NO'}
+    Output TABLE with 2 columns when Include EN = yes (English | Español). If Include EN = no, output only Spanish in a single-column table.
+    Label speakers (A:, B:, ...). Bold vocab with <span class="en"> and <span class="es" lang="es">.
+    After all conversations, optionally include PRACTICE (FIB) and Vocabulary Used sections if requested.
+    Include manifest: {"type":"convo","includeEN":true/false,"conversations":#,"speakers":#,"turnsPerConversation":[...],"hasFIB":true/false,"hasFIBKey":true/false,"hasVocabList":true/false}
   -->
 
-  <div class="section">
-    <h2>Dialogue</h2>
+  <!-- MODEL: generate ${inputs.numConvos} conversation card(s) below -->
+  ${Array.from({length: inputs.numConvos}).map((_,i)=>`
+  <div class="section"><h2>Conversation ${i+1}</h2>
     <table class="tbl">
-      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- MODEL: insert turn-by-turn rows here --></tbody>
+      <thead><tr>${inputs.includeEN==="yes"?'<th>English</th>':''}<th lang="es">Español</th></tr></thead>
+      <tbody><!-- INSERT TURNS (≈${inputs.turns}) USING <span class="chip">A</span> etc. --></tbody>
     </table>
-  </div>
+  </div>`).join('')}
 
   <div class="section"><h2>Practice — Fill-in-the-Blank</h2>
-    <!-- MODEL: only include if requested. Provide a table with #: Prompt, and separate Answer Key table if requested. -->
+    <!-- Include ONLY if ${inputs.addFIB} -->
+    <!-- Table: # | Prompt (with ________ (ENGLISH HINT)) ${inputs.showFIBKey==='yes'?'and an Answer column':''} -->
   </div>
 
   <div class="section"><h2>Vocabulary Used</h2>
-    <!-- MODEL: only include if requested. Provide table English | Español. -->
+    <!-- Include ONLY if ${inputs.showVocabList} -->
+    <!-- Table: English | Español -->
   </div>
 
-  <div class="note">${$('c-notes').value ? $('c-notes').value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : ''}</div>
+  <div class="note">${inputs.notes ? inputs.notes.replace(/</g,"&lt;").replace(/>/g,"&gt;") : ''}</div>
 
+  <script id="fcs_manifest" type="application/json">
+    {"type":"convo","includeEN":${inputs.includeEN==="yes"},"conversations":${inputs.numConvos},"speakers":${inputs.numSpeakers},
+     "turnsPerConversation":[0],"hasFIB":${inputs.addFIB==="yes"},"hasFIBKey":${inputs.showFIBKey==="yes"},"hasVocabList":${inputs.showVocabList==="yes"}}
+  </script>
 </div></body></html>`;
-      generateResult(prompt,genBtn,statusEl,outputEl);
+      generateValidated("convo", prompt, inputs, genBtn, statusEl, outputEl);
     });
 
-    copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
-    excelBtn.addEventListener('click', ()=>downloadAsExcel(outputEl,statusEl,$('c-topic').value||'Conversation'));
+    $('c-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
+    $('c-excel').addEventListener('click', ()=>downloadAsExcel(outputEl,statusEl,$('c-topic').value||'Conversation'));
   })();
 
   // ---------- TEST ----------
@@ -391,11 +526,12 @@
 
     genBtn.addEventListener('click', ()=>{
       const vocabEl=$('t-vocab'); if(!vocabEl.value.trim()){statusEl.textContent="Please paste a vocab list.";return;}
+      const inputs = { level:Number($('t-level').value), anskeys: $('t-anskeys').checked, vocab:vocabEl.value };
       const prompt =
 `<!DOCTYPE html>
-<!-- FCS TEST OUTPUT -->
+<!-- FCS TEST OUTPUT: Use EXACT CSS & structure. Include fcs_manifest. -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Test — Level ${$('t-level').value}</title>
+<title>Test — Level ${inputs.level}</title>
 <style>
   :root{--ink:#111;--muted:#667085;--border:#e5e7eb;--panel:#ffffff;--bg:#ffffff;--en:#1a73e8;--es:#d93025;--h:#0f172a}
   *{box-sizing:border-box} body{font-family:Calibri,Arial,sans-serif;font-size:10pt;color:var(--ink);background:var(--bg);margin:0}
@@ -409,57 +545,44 @@
   .tbl tr:nth-child(even) td{background:#fafafa}
   .en{color:var(--en);font-weight:700} .es{color:var(--es);font-weight:700}
   .note{font-size:9pt;color:var(--muted)}
-  @media(max-width:700px){ .tbl{font-size:9pt} }
 </style></head>
 <body><div class="fcs-doc">
-  <h1>FCS Conversation Test — Level ${$('t-level').value}</h1>
-  <div class="note">Vocabulary source pasted by teacher is used verbatim where possible.</div>
+  <h1>FCS Conversation Test — Level ${inputs.level}</h1>
+  <div class="note">Use ONLY the vocabulary list provided by the teacher below.</div>
 
-  <!-- MODEL RULES:
-    Structure MUST be:
-      Part 1 – Spanish → English (Table: # | Spanish | Answer ${$('t-anskeys').checked ? '' : '(omit Answer column)'} )
-      Part 2 – English → Spanish (Table: # | English | Answer ${$('t-anskeys').checked ? '' : '(omit Answer column)'} )
-      Part 3 – Live Conversation Prompts (Table: # | Prompt (Spanish); no answer column)
-    - Use ONLY the provided vocabulary and Level ${$('t-level').value} grammar.
-    - If Include Teacher Answer Keys = ${$('t-anskeys').checked}, show answer columns and add a final consolidated “Answer Key” section.
-    - Keep items clear, concise, and varied; avoid trick questions.
-  -->
-
+  <!-- RULES: Three parts in order. Use tables. -->
   <div class="section">
     <h2>Part 1 — Spanish → English</h2>
-    <table class="tbl"><thead><tr><th>#</th><th lang="es">Español</th>${$('t-anskeys').checked ? '<th>Answer (EN)</th>' : ''}</tr></thead>
-      <tbody><!-- MODEL: insert rows here --></tbody>
+    <table class="tbl"><thead><tr><th>#</th><th lang="es">Español</th>${inputs.anskeys ? '<th>Answer (EN)</th>' : ''}</tr></thead>
+      <tbody><!-- INSERT ITEMS ≥8 --></tbody>
     </table>
   </div>
 
   <div class="section">
     <h2>Part 2 — English → Spanish</h2>
-    <table class="tbl"><thead><tr><th>#</th><th>English</th>${$('t-anskeys').checked ? '<th lang="es">Answer (ES)</th>' : ''}</tr></thead>
-      <tbody><!-- MODEL: insert rows here --></tbody>
+    <table class="tbl"><thead><tr><th>#</th><th>English</th>${inputs.anskeys ? '<th lang="es">Answer (ES)</th>' : ''}</tr></thead>
+      <tbody><!-- INSERT ITEMS ≥8 --></tbody>
     </table>
   </div>
 
   <div class="section">
     <h2>Part 3 — Live Conversation Prompts</h2>
     <table class="tbl"><thead><tr><th>#</th><th lang="es">Prompt (Español)</th></tr></thead>
-      <tbody><!-- MODEL: insert prompts here --></tbody>
+      <tbody><!-- INSERT PROMPTS ≥8 --></tbody>
     </table>
   </div>
 
-  <div class="section">
-    <h2>Answer Key</h2>
-    <!-- MODEL: include only when ${$('t-anskeys').checked}. Provide all answers grouped by part. -->
-  </div>
+  ${inputs.anskeys ? '<div class="section"><h2>Answer Key</h2><!-- CONSOLIDATED ANSWERS --></div>' : ''}
 
-  <div class="note">Vocabulary pasted by teacher:</div>
-  <div class="note" style="white-space:pre-wrap;border:1px dashed var(--border);padding:8px;border-radius:8px;">${$('t-vocab').value.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>
+  <div class="note" style="white-space:pre-wrap;border:1px dashed var(--border);padding:8px;border-radius:8px;">${inputs.vocab.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>
 
+  <script id="fcs_manifest" type="application/json">{"type":"test","level":${inputs.level},"part1":0,"part2":0,"part3":0,"answerKeys":${inputs.anskeys}}</script>
 </div></body></html>`;
-      generateResult(prompt,genBtn,statusEl,outputEl);
+      generateValidated("test", prompt, inputs, genBtn, statusEl, outputEl);
     });
 
-    copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
-    excelBtn.addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,'Test'));
+    $('t-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
+    $('t-excel').addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,'Test'));
   })();
 })();
 </script>
