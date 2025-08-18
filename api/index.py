@@ -56,4 +56,18 @@ class handler(BaseHTTPRequestHandler):
                     if ai_content.startswith(('html', 'markdown', 'xml')):
                         ai_content = ai_content.split('\n', 1)[1]
 
-            respons
+            response_payload = {"content": ai_content.strip()}
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json; charset=utf-8')
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(json.dumps(response_payload).encode('utf-8'))
+
+        except Exception as e:
+            print(f"AN ERROR OCCURRED: {e}")
+            self.send_response(500)
+            self.send_header('Content-type', 'application/json; charset=utf-8')
+            self._send_cors_headers()
+            self.end_headers()
+            error_payload = {"error": "An internal server error occurred.", "details": str(e)}
+            self.wfile.write(json.dumps(error_payload).encode('utf-8'))
