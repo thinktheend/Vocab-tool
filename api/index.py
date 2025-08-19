@@ -34,15 +34,18 @@ class handler(BaseHTTPRequestHandler):
             client = OpenAI(api_key=api_key)
             completion = client.chat.completions.create(
                 model="gpt-4o",
-                temperature=0.4,
+                temperature=0.25,  # slightly lower = better rule-following
                 messages=[
                     {
                         "role": "system",
                         "content": (
                             "You are an expert assistant for the Fast Conversational Spanish (FCS) program. "
-                            "You MUST follow every rule in the user's prompt precisely. "
                             "Return ONLY the raw HTML (a full, valid, self-contained document). "
-                            "Do NOT add any greetings, explanations, or code fences like ```html."
+                            "BEFORE YOU REPLY: verify that every required section in the user's template is populated. "
+                            "No table may have an empty <tbody>. "
+                            "If any section would be empty, you MUST generate appropriate content to fill it. "
+                            "Do NOT leave placeholder comments; output final content only. "
+                            "Do NOT add greetings, explanations, or code fences like ```html."
                         )
                     },
                     {"role": "user", "content": prompt}
