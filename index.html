@@ -122,9 +122,9 @@
           <div class="six"><label for="v-topic">Topic</label><input id="v-topic" type="text" placeholder="e.g., At the Airport"></div>
           <div class="six"><label for="v-level">Level</label>
             <select id="v-level">
-              <option value="1">Level 1 — Survival</option>
+              <option value="1" selected>Level 1 — Survival</option>
               <option value="2">Level 2 — Beginner</option>
-              <option value="3" selected>Level 3 — Intermediate</option>
+              <option value="3">Level 3 — Intermediate</option>
               <option value="4">Level 4 — Conversational</option>
               <option value="5">Level 5 — Fluent</option>
             </select>
@@ -198,24 +198,18 @@
   <h1>Vocabulary: ${topicEl.value} — ${levelTexts[levelEl.value]}</h1>
   <div class="legend">
     <span class="badge"><span class="en">English</span> / <span class="es" lang="es">Español</span></span>
-    <span class="badge">All sections must be completed. No empty tables.</span>
+    <span class="badge">All English vocabulary must render blue; Spanish red, using .en/.es classes.</span>
   </div>
 
   <!-- RULES THE MODEL MUST FOLLOW (NON-NEGOTIABLE) -->
   <!--
     • Generate ALL FIVE sections: Nouns, Verbs, Descriptive Words, Common Phrases, Common Questions.
     • Every table must contain at least one data row; never leave a section empty.
+    • English terms must be wrapped in <span class="en">…</span> (blue); Spanish terms in <span class="es">…</span> (red).
     • Alphabetize items in each section by the English term (ignore “to ” for verbs).
     • Columns per row: English (bold blue) | Spanish (bold red) | Definition/Example.
-    • Wrap target words with <span class="en">…</span> or <span class="es">…</span>.
     • If user provided “Vocabulary to Include”, include them (best-fit section).
-    • Level caps (strict):
-      L1: Nouns ≤35, Verbs ≤15, Descriptive ≤12, Questions ≤8, Phrases ≤12
-      L2: Nouns 30–55, Verbs 12–20, Descriptive 10–18, Questions 7–12, Phrases 10–18
-      L3: Nouns 50–75, Verbs 18–30, Descriptive 18–28, Questions 12–18, Phrases 15–25
-      L4: Nouns ≥70, Verbs ≥25, Descriptive ≥25, Questions ≥18, Phrases ≥25
-      L5: Nouns ≥90, Verbs ≥30, Descriptive ≥30, Questions ≥25, Phrases ≥35
-    • Total words (Nouns+Verbs+Descriptive) must be within: mode=${tmodeEl.value}, min=${tminEl.value||'auto'}, max=${tmaxEl.value||'auto'}.
+    • Level caps (strict) and totals range as previously defined.
     • SELF-CHECK before responding: if any section is empty or totals are out of range, adjust counts and fill missing rows.
   -->
 
@@ -274,7 +268,15 @@
       <div class="fcs-card"><h2>Conversation Creator</h2>
         <div class="grid-2">
           <div class="grid-full"><label for="c-topic">Topic</label><input id="c-topic" type="text" placeholder="e.g., A funny story about a vacation"/></div>
-          <div><label>Level (Grammar)</label><select id="c-level"><option value="1">Level 1</option><option value="2">Level 2</option><option value="3">Level 3</option><option value="4">Level 4</option><option value="5" selected>Level 5</option></select></div>
+          <div><label>Level (Grammar)</label>
+            <select id="c-level">
+              <option value="1" selected>Level 1 — Survival</option>
+              <option value="2">Level 2 — Beginner</option>
+              <option value="3">Level 3 — Intermediate</option>
+              <option value="4">Level 4 — Conversational</option>
+              <option value="5">Level 5 — Fluent</option>
+            </select>
+          </div>
           <div class="grid-full"><label for="c-vocab">Vocabulary (optional)</label><textarea id="c-vocab" rows="8" placeholder="Put your own vocabulary here..."></textarea></div>
           <div><label>Number of Conversations</label><input id="c-numConvos" type="number" value="2"/></div>
           <div><label># of Speakers</label><input id="c-numSpeakers" type="number" value="2"/></div>
@@ -342,6 +344,7 @@
 <div class="fcs-doc">
   <h1>Conversation: ${$('c-topic').value} — Level ${$('c-level').value}</h1>
   <div class="legend">
+    <span class="en">EN vocab = blue</span> | <span class="es">ES vocab = red</span>.
     ${$('c-includeEN').value==='yes'
       ? '<strong>Two-column:</strong> English on left, Spanish on right.'
       : '<strong>Spanish-only:</strong> English column omitted.'}
@@ -352,10 +355,9 @@
     • Each conversation: ~${$('c-turns').value} turns, ${$('c-numSpeakers').value} speaker(s). If 1 speaker ⇒ coherent monologue.
     • Tone: ${$('c-tone').value}; Region: ${$('c-country').value}.
     • Use ONLY provided vocabulary ${$('c-vocab').value ? '(STRICT)' : '(or auto-generate level-appropriate if none provided)'} + glue words + level-legal grammar.
-    • Bold vocab in both languages with <span class="en">…</span> and <span class="es">…</span>.
+    • Bold & color vocabulary in BOTH languages with <span class="en">…</span> (blue) and <span class="es">…</span> (red).
     • Conversations NEVER contain blanks. Practices hold blanks.
     • If Include English = yes ⇒ 2 columns (EN | ES); else Spanish column only.
-    • If a requested section exists (Practice, Vocab Used, Answer Key), it MUST NOT be empty.
   -->
 
   ${Array.from({length: Number($('c-numConvos').value)}).map((_,i)=>`
@@ -373,7 +375,6 @@
 
   <div class="section">
     <h2>Practice — Fill-in-the-Blank</h2>
-    <!-- Include ONLY if Add FIB = yes; if included, MUST NOT be empty. -->
     <table class="tbl">
       <thead>
         ${$('c-includeEN').value==='yes'
@@ -386,7 +387,6 @@
 
   <div class="section">
     <h2>Vocabulary Used</h2>
-    <!-- Include ONLY if Show Vocabulary List = yes; MUST NOT be empty when included. -->
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
       <tbody><!-- List key vocabulary (EN | ES). --></tbody>
@@ -395,7 +395,6 @@
 
   <div class="section">
     <h2>Answer Key</h2>
-    <!-- Include ONLY if Show FIB Answer Key = yes; MUST NOT be empty when included. -->
     <table class="tbl">
       <thead><tr><th>#</th><th>Answer</th></tr></thead>
       <tbody><!-- Numbered answers matching FIB items. --></tbody>
@@ -424,7 +423,13 @@
         <h2>Test Creator</h2>
         <div><label for="t-vocab">Vocabulary List</label><textarea id="t-vocab" rows="6" placeholder="Paste the EXACT vocabulary for the test..."></textarea></div>
         <div><label for="t-level">Level (Grammar)</label>
-          <select id="t-level"><option value="1">Level 1</option><option value="2" selected>Level 2</option><option value="3">Level 3</option><option value="4">Level 4</option><option value="5">Level 5</option></select></div>
+          <select id="t-level">
+            <option value="1" selected>Level 1 — Survival</option>
+            <option value="2">Level 2 — Beginner</option>
+            <option value="3">Level 3 — Intermediate</option>
+            <option value="4">Level 4 — Conversational</option>
+            <option value="5">Level 5 — Fluent</option>
+          </select></div>
         <div><label><input type="checkbox" id="t-anskeys" checked> Include Teacher Answer Keys?</label></div>
         <div class="actions"><button id="t-gen" class="primary">Generate</button><button id="t-excel">Excel</button><button id="t-copy">Copy</button><div id="t-status" class="status"></div></div>
       </div>
@@ -457,7 +462,17 @@
 </style></head>
 <body><div class="fcs-doc">
   <h1>FCS Conversation Test — Level ${$('t-level').value}</h1>
-  <div class="note">Use ONLY the provided vocabulary. If a part is present, it must not be empty.</div>
+  <div class="note"><span class="en">English terms = blue</span>; <span class="es">Spanish terms = red</span> using .en/.es classes whenever vocabulary appears inline.</div>
+
+  <!-- MODEL RULES:
+    Structure MUST be:
+      Part 1 – Spanish → English (Table: # | Spanish | ${$('t-anskeys').checked ? 'Answer (EN)' : 'omit Answer column'})
+      Part 2 – English → Spanish (Table: # | English | ${$('t-anskeys').checked ? 'Answer (ES)' : 'omit Answer column'})
+      Part 3 – Live Conversation Prompts (Table: # | Prompt (Spanish); no answer column)
+    - Use ONLY the provided vocabulary and Level ${$('t-level').value} grammar.
+    - When vocabulary appears inline, wrap EN with <span class="en">…</span> and ES with <span class="es">…</span>.
+    - If Include Teacher Answer Keys = ${$('t-anskeys').checked}, show answer columns and add a final consolidated “Answer Key” section.
+  -->
 
   <div class="section">
     <h2>Part 1 — Spanish → English</h2>
