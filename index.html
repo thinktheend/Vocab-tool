@@ -178,11 +178,11 @@
 <title>Vocabulary — ${topicEl.value}</title>
 <style>
   :root{--ink:#111;--muted:#667085;--border:#e5e7eb;--panel:#ffffff;--bg:#ffffff;--en:#1a73e8;--es:#d93025;--h:#0f172a;}
-  *{box-sizing:border-box} body{font-family:Calibri,Arial,sans-serif;font-size:10pt;color:var(--ink);background:var(--bg);margin:0}
+  *{box-sizing:border-box} body{font-family:Calibri,Arial,sans-serif;font-size:10pt;line-height:1.4;color:var(--ink);background:var(--bg);margin:0}
   .fcs-doc{max-width:980px;margin:0 auto;padding:24px}
   h1{font-size:20pt;text-align:center;color:var(--h);margin:0 0 12px 0}
   h2{font-size:13pt;color:var(--h);margin:16px 0 8px 0;text-align:center}
-  .section{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px}
+  .section{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px;overflow-x:auto}
   .legend{font-size:9pt;color:var(--muted);text-align:center;margin:6px 0 0 0}
   .tbl{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
   .tbl th,.tbl td{border:1px solid var(--border);padding:6px;vertical-align:top}
@@ -192,39 +192,38 @@
   .subcategory{background:#eef2ff;font-weight:700;text-align:left}
   .badge{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:#f8fafc;font-size:9pt;margin:6px}
   .note{font-size:9pt;color:var(--muted)}
-  @media(max-width:700px){ .tbl{font-size:9pt} }
+  @media(max-width:700px){ .tbl{font-size:9pt;width:auto} }
 </style></head>
 <body><div class="fcs-doc" lang="en">
   <h1>Vocabulary: ${topicEl.value} — ${levelTexts[levelEl.value]}</h1>
   <div class="legend">
     <span class="badge"><span class="en">English</span> / <span class="es" lang="es">Español</span></span>
-    <span class="badge">Every row includes a concise definition or example sentence.</span>
+    <span class="badge">All sections must be completed. No empty tables.</span>
   </div>
 
-  <!-- RULES THE MODEL MUST FOLLOW -->
+  <!-- RULES THE MODEL MUST FOLLOW (NON-NEGOTIABLE) -->
   <!--
-    SECTION ORDER (fixed): Nouns, Verbs, Descriptive Words, Common Phrases, Common Questions
-    COLUMNS (fixed): English | Spanish | Definition / Example
-    - Alphabetize each section by the English term (ignore “to ” for verbs).
-    - In all example sentences, wrap target words with <span class="en"> and <span class="es">.
-    - Show helpful subcategory label rows (e.g., Transportation, People) as: 
-      <tr><td class="subcategory" colspan="3">Nouns — Transportation</td></tr>
-    - Level caps (strict):
+    • Generate ALL FIVE sections: Nouns, Verbs, Descriptive Words, Common Phrases, Common Questions.
+    • Every table must contain at least one data row; never leave a section empty.
+    • Alphabetize items in each section by the English term (ignore “to ” for verbs).
+    • Columns per row: English (bold blue) | Spanish (bold red) | Definition/Example.
+    • Wrap target words with <span class="en">…</span> or <span class="es">…</span>.
+    • If user provided “Vocabulary to Include”, include them (best-fit section).
+    • Level caps (strict):
       L1: Nouns ≤35, Verbs ≤15, Descriptive ≤12, Questions ≤8, Phrases ≤12
       L2: Nouns 30–55, Verbs 12–20, Descriptive 10–18, Questions 7–12, Phrases 10–18
       L3: Nouns 50–75, Verbs 18–30, Descriptive 18–28, Questions 12–18, Phrases 15–25
       L4: Nouns ≥70, Verbs ≥25, Descriptive ≥25, Questions ≥18, Phrases ≥25
       L5: Nouns ≥90, Verbs ≥30, Descriptive ≥30, Questions ≥25, Phrases ≥35
-    - Total words (Nouns+Verbs+Descriptive) must be within: mode=${tmodeEl.value}, min=${tminEl.value||'auto'}, max=${tmaxEl.value||'auto'}.
-    - If user provided “Vocabulary to Include”, ensure those appear (use best-fit section).
-    - Use simple, student-friendly definitions (or a short example sentence when clearer).
+    • Total words (Nouns+Verbs+Descriptive) must be within: mode=${tmodeEl.value}, min=${tminEl.value||'auto'}, max=${tmaxEl.value||'auto'}.
+    • SELF-CHECK before responding: if any section is empty or totals are out of range, adjust counts and fill missing rows.
   -->
 
   <div class="section">
     <h2>Nouns / Sustantivos</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th><th>Definition / Example</th></tr></thead>
-      <tbody><!-- MODEL: insert noun rows and subcategories here --></tbody>
+      <tbody><!-- INSERT NOUN ROWS --></tbody>
     </table>
   </div>
 
@@ -232,16 +231,15 @@
     <h2>Verbs / Verbos</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th><th>Definition / Example</th></tr></thead>
-      <tbody><!-- MODEL: insert verb rows here --></tbody>
+      <tbody><!-- INSERT VERB ROWS --></tbody>
     </table>
-    <div class="note">Tip: Keep example sentences in present/simple structures to emphasize infinitives.</div>
   </div>
 
   <div class="section">
     <h2>Descriptive Words / Palabras descriptivas</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th><th>Definition / Example</th></tr></thead>
-      <tbody><!-- MODEL: insert adjectives/adverbs here --></tbody>
+      <tbody><!-- INSERT DESCRIPTIVE ROWS --></tbody>
     </table>
   </div>
 
@@ -249,7 +247,7 @@
     <h2>Common Phrases / Frases comunes</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th><th>Meaning / Example</th></tr></thead>
-      <tbody><!-- MODEL: insert phrases here --></tbody>
+      <tbody><!-- INSERT PHRASE ROWS --></tbody>
     </table>
   </div>
 
@@ -257,7 +255,7 @@
     <h2>Common Questions / Preguntas comunes</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th><th>Sample Answer</th></tr></thead>
-    <tbody><!-- MODEL: insert Q&A here --></tbody>
+      <tbody><!-- INSERT QUESTION ROWS --></tbody>
     </table>
   </div>
 
@@ -305,12 +303,11 @@
     genBtn.addEventListener('click', ()=>{
       if(!$('c-topic').value.trim()){statusEl.textContent="Enter a topic.";return;}
 
-      // Default # of practices derived from turns (keeps UI unchanged)
       const fibCount = Math.max(8, Math.min(20, Math.round(Number($('c-turns').value) * 0.8)));
 
       const prompt =
 `<!DOCTYPE html>
-<!-- FCS CONVERSATION OUTPUT (Full self-contained HTML; no extra commentary) -->
+<!-- FCS CONVERSATION OUTPUT (Full HTML; no commentary) -->
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -332,7 +329,7 @@
   .es{color:var(--es);font-weight:700}
   .chip{display:inline-block;background:var(--hi);border:1px solid var(--border);border-radius:999px;padding:0 8px;margin-right:6px;font-weight:700}
   .note{font-size:9pt;color:var(--muted)}
-  em,i{font-style:normal} /* never italicize */
+  em,i{font-style:normal}
   @media(max-width:700px){
     .tbl{font-size:9pt;width:auto}
     .tbl thead{display:none}
@@ -346,58 +343,22 @@
   <h1>Conversation: ${$('c-topic').value} — Level ${$('c-level').value}</h1>
   <div class="legend">
     ${$('c-includeEN').value==='yes'
-      ? '<strong>Two-column mode:</strong> English on the left, Spanish on the right.'
-      : '<strong>Spanish-only mode:</strong> English column omitted.'}
+      ? '<strong>Two-column:</strong> English on left, Spanish on right.'
+      : '<strong>Spanish-only:</strong> English column omitted.'}
   </div>
 
-  <!-- =================== FCS CONVERSATION CREATOR RULES (ENFORCED) ===================
-  Intro
-    • You are creating content for my Fast Conversational Spanish program.
-    • Topic: ${$('c-topic').value}
-    • Level: ${$('c-level').value}
-    • Vocabulary:
-        - Use ONLY words in the provided list ${$('c-vocab').value ? '(STRICT)' : '(if none provided, auto-generate level-appropriate set)'}
-        - Plus GLUE WORDS and level-legal grammar.
-  Level Rules (grammar scope)
-    Level 1 – Survival: Simple sentences only.
-    Level 2 – Present; ser/estar; tener que, necesitar, querer, ir a, poder, acabar de, gustar; conditional verb phrases (poder, deber, gustar); DO/IO pronouns; reflexives; glue words.
-    Level 3 – All L2 + Pretérito (2+ forms), Imperfecto, Present Progressive; avoid imperatives/subjunctive/future/conditional/perfects.
-    Level 4 – All L2/L3 + Future, Conditional, Present Perfect, Present Perfect Progressive; all uses of “se”; no imperatives/subjunctive.
-    Level 5 – All L2–L4 + imperatives (pos/neg), subjunctive, hypotheticals, all perfect/progressive combos.
-  Conversations (must honor selections)
-    • Quantity: ${$('c-numConvos').value}
-    • Speakers: ${$('c-numSpeakers').value} (if 1 => coherent monologue)
-    • Target duration per conversation: ~${$('c-minutes').value} minutes
-    • Turns per conversation: ~${$('c-turns').value} (varied length, natural back-and-forth)
-    • Tone: ${$('c-tone').value}
-    • Country/Region: ${$('c-country').value} (adjust vocabulary/register)
-    • Include English Translation: ${$('c-includeEN').value}
-    • Formatting:
-        - FULL sentences only. NO blanks in conversations.
-        - Speakers labeled (A:, B:, C:). Begin each turn cell with <span class="chip">A</span> etc.
-        - Bold vocabulary in BOTH languages using <span class="en">…</span> and <span class="es" lang="es">…</span>.
-        - If Include English = yes: columns are English | Español. If no: Spanish-only (omit English column).
-  Practices / Fill-in-the-Blank (include ONLY if Add FIB = ${$('c-addFib').value})
-    • Quantity: ${fibCount}
-    • Focus: ${$('c-fibFocus').value}
-    • Difficulty: match the selected level’s grammar scope.
-    • Blank ratio: 30% (Spanish lines only), format blanks as ________ (ENGLISH WORD TO TRANSLATE).
-    • English lines have NO blanks; Spanish line carries the blank with (EN) hint.
-    • If Include English = yes: practices and answer key also use two columns (EN | ES).
-    • Number all items.
-    • Answer Key: single consolidated section AFTER practices; answers ONLY (numbered).
-  General Requirements
-    • Use ONLY provided vocabulary (plus glue words & level-legal grammar).
-    • Keep grammar exactly within level rules.
-    • Natural variation; no italics; conversations never include blanks.
-    • Respect tone & region.
-  Optional Teacher Notes
-    ${$('c-notes').value ? $('c-notes').value.replace(/</g,'&lt;').replace(/>/g,'&gt;') : '-'}
-  =================================================================== -->
+  <!-- COMPLIANCE (REQUIRED)
+    • Generate ${$('c-numConvos').value} conversation cards; none may be empty.
+    • Each conversation: ~${$('c-turns').value} turns, ${$('c-numSpeakers').value} speaker(s). If 1 speaker ⇒ coherent monologue.
+    • Tone: ${$('c-tone').value}; Region: ${$('c-country').value}.
+    • Use ONLY provided vocabulary ${$('c-vocab').value ? '(STRICT)' : '(or auto-generate level-appropriate if none provided)'} + glue words + level-legal grammar.
+    • Bold vocab in both languages with <span class="en">…</span> and <span class="es">…</span>.
+    • Conversations NEVER contain blanks. Practices hold blanks.
+    • If Include English = yes ⇒ 2 columns (EN | ES); else Spanish column only.
+    • If a requested section exists (Practice, Vocab Used, Answer Key), it MUST NOT be empty.
+  -->
 
-  <!-- ====== Conversations (generate ${$('c-numConvos').value} separate conversation cards) ====== -->
-  ${Array.from({length: Number($('c-numConvos').value)})
-    .map((_,i)=>`
+  ${Array.from({length: Number($('c-numConvos').value)}).map((_,i)=>`
   <div class="section">
     <h2>Conversation ${i+1}</h2>
     <table class="tbl">
@@ -406,48 +367,38 @@
           ? '<tr><th>English</th><th lang="es">Español</th></tr>'
           : '<tr><th lang="es">Español</th></tr>'}
       </thead>
-      <tbody>
-        <!-- MODEL: insert ~${$('c-turns').value} labeled turns here following speaker count ${$('c-numSpeakers').value}.
-             If ${$('c-numSpeakers').value} = 1 => a coherent monologue.
-             If Include EN = yes => produce parallel English/Spanish lines for each turn.
-             Bold vocab in both using <span class="en"> and <span class="es">. -->
-      </tbody>
+      <tbody><!-- DIALOGUE ROWS REQUIRED: populate ~${$('c-turns').value} labeled turns (A:, B:, C:). --></tbody>
     </table>
   </div>`).join('')}
 
-  <!-- ====== Practice (FIB) — include ONLY if ${$('c-addFib').value} ====== -->
   <div class="section">
     <h2>Practice — Fill-in-the-Blank</h2>
-    <!-- Only render if Add FIB = yes. Create ${fibCount} numbered items.
-         If Include EN = yes => two columns (English | Español with blank).
-         Spanish line has 30% blanked words as ________ (ENGLISH WORD TO TRANSLATE).
-         English line shows the word in (parentheses) exactly as written in English.
-         Use focus: ${$('c-fibFocus').value}. -->
+    <!-- Include ONLY if Add FIB = yes; if included, MUST NOT be empty. -->
     <table class="tbl">
       <thead>
         ${$('c-includeEN').value==='yes'
           ? '<tr><th>(EN)</th><th lang="es">(ES)</th></tr>'
           : '<tr><th lang="es">(ES)</th></tr>'}
       </thead>
-      <tbody><!-- FIB rows here if requested --></tbody>
+      <tbody><!-- Create ${fibCount} numbered items; Spanish line has 30% blanks as ________ (ENGLISH WORD TO TRANSLATE). --></tbody>
     </table>
   </div>
 
-  <!-- ====== Vocabulary Used — include ONLY if ${$('c-showVocabList').value} ====== -->
   <div class="section">
     <h2>Vocabulary Used</h2>
+    <!-- Include ONLY if Show Vocabulary List = yes; MUST NOT be empty when included. -->
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- vocab table --></tbody>
+      <tbody><!-- List key vocabulary (EN | ES). --></tbody>
     </table>
   </div>
 
-  <!-- ====== Answer Key — include ONLY if ${$('c-showFIBKey').value} ====== -->
   <div class="section">
     <h2>Answer Key</h2>
+    <!-- Include ONLY if Show FIB Answer Key = yes; MUST NOT be empty when included. -->
     <table class="tbl">
       <thead><tr><th>#</th><th>Answer</th></tr></thead>
-      <tbody><!-- numbered answers matching FIB items --></tbody>
+      <tbody><!-- Numbered answers matching FIB items. --></tbody>
     </table>
   </div>
 
@@ -491,56 +442,47 @@
 <title>Test — Level ${$('t-level').value}</title>
 <style>
   :root{--ink:#111;--muted:#667085;--border:#e5e7eb;--panel:#ffffff;--bg:#ffffff;--en:#1a73e8;--es:#d93025;--h:#0f172a}
-  *{box-sizing:border-box} body{font-family:Calibri,Arial,sans-serif;font-size:10pt;color:var(--ink);background:var(--bg);margin:0}
+  *{box-sizing:border-box} body{font-family:Calibri,Arial,sans-serif;font-size:10pt;line-height:1.4;color:var(--ink);background:var(--bg);margin:0}
   .fcs-doc{max-width:980px;margin:0 auto;padding:24px}
   h1{font-size:20pt;text-align:center;color:var(--h);margin:0 0 12px 0}
   h2{font-size:13pt;color:var(--h);margin:16px 0 8px 0;text-align:center}
-  .section{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px}
+  .section{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px;overflow-x:auto}
   .tbl{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
   .tbl th,.tbl td{border:1px solid var(--border);padding:8px;vertical-align:top}
   .tbl th{background:#f5f7fb;font-weight:700}
   .tbl tr:nth-child(even) td{background:#fafafa}
   .en{color:var(--en);font-weight:700} .es{color:var(--es);font-weight:700}
   .note{font-size:9pt;color:var(--muted)}
-  @media(max-width:700px){ .tbl{font-size:9pt} }
+  @media(max-width:700px){ .tbl{font-size:9pt;width:auto} }
 </style></head>
 <body><div class="fcs-doc">
   <h1>FCS Conversation Test — Level ${$('t-level').value}</h1>
-  <div class="note">Vocabulary source pasted by teacher is used verbatim where possible.</div>
-
-  <!-- MODEL RULES:
-    Structure MUST be:
-      Part 1 – Spanish → English (Table: # | Spanish | ${$('t-anskeys').checked ? 'Answer (EN)' : 'omit Answer column'})
-      Part 2 – English → Spanish (Table: # | English | ${$('t-anskeys').checked ? 'Answer (ES)' : 'omit Answer column'})
-      Part 3 – Live Conversation Prompts (Table: # | Prompt (Spanish); no answer column)
-    - Use ONLY the provided vocabulary and Level ${$('t-level').value} grammar.
-    - If Include Teacher Answer Keys = ${$('t-anskeys').checked}, show answer columns and add a final consolidated “Answer Key” section.
-  -->
+  <div class="note">Use ONLY the provided vocabulary. If a part is present, it must not be empty.</div>
 
   <div class="section">
     <h2>Part 1 — Spanish → English</h2>
     <table class="tbl"><thead><tr><th>#</th><th lang="es">Español</th>${$('t-anskeys').checked ? '<th>Answer (EN)</th>' : ''}</tr></thead>
-      <tbody><!-- MODEL: insert rows here --></tbody>
+      <tbody><!-- MUST include at least one row. --></tbody>
     </table>
   </div>
 
   <div class="section">
     <h2>Part 2 — English → Spanish</h2>
     <table class="tbl"><thead><tr><th>#</th><th>English</th>${$('t-anskeys').checked ? '<th lang="es">Answer (ES)</th>' : ''}</tr></thead>
-      <tbody><!-- MODEL: insert rows here --></tbody>
+      <tbody><!-- MUST include at least one row. --></tbody>
     </table>
   </div>
 
   <div class="section">
     <h2>Part 3 — Live Conversation Prompts</h2>
     <table class="tbl"><thead><tr><th>#</th><th lang="es">Prompt (Español)</th></tr></thead>
-      <tbody><!-- MODEL: insert prompts here --></tbody>
+      <tbody><!-- MUST include at least one row. --></tbody>
     </table>
   </div>
 
   <div class="section">
     <h2>Answer Key</h2>
-    <!-- MODEL: include only when ${$('t-anskeys').checked}. Provide all answers grouped by part. -->
+    <!-- Include only when ${$('t-anskeys').checked}. Provide answers only; MUST not be empty if included. -->
   </div>
 
   <div class="note">Vocabulary pasted by teacher:</div>
