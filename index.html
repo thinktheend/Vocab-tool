@@ -36,11 +36,14 @@
   .output-container .en { color: var(--en); font-weight: bold; } 
   .output-container .es { color: var(--es); font-weight: bold; }
 
-  /* NEW: speaker toolbar */
-  .speakbar { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:8px; }
-  .speakbar .small { margin-left:8px; }
-  .speakbar button { padding:6px 10px; font-size:13px; }
-  .speakbar .pill { border-radius:999px; }
+  /* Small inline TTS buttons inserted into each EN/ES cell */
+  .tts-line-btn {
+    display:inline-flex; align-items:center; gap:4px;
+    padding:2px 6px; margin-right:6px; border:1px solid #dbe2ef;
+    border-radius:999px; background:#eef2ff; cursor:pointer; font-size:12px; line-height:1;
+  }
+  .tts-line-btn[data-tts="es"] { background:#fdeaea; border-color:#f5c2c7; }
+  .tts-line-btn:hover { filter:brightness(0.98); }
   @media (max-width: 860px){ .six, .twelve { grid-column: span 12; } .grid-2{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -80,6 +83,9 @@
       if(!resp.ok) throw new Error(json.details||json.error||"Unknown server error.");
       outputEl.innerHTML=json.content;
       statusEl.textContent="Success!";
+      // NEW: add slow per-line TTS buttons into the generated tables
+      await Speech.ensureVoices();
+      addPerLineTTS(outputEl);
     }catch(err){
       console.error("Error:",err);
       outputEl.innerHTML=`<p style="color:red;"><strong>Error:</strong> ${err.message}</p>`;
@@ -125,53 +131,52 @@
   const Speech = {
     voices: [],
     ready: false,
+    defaultRate: 0.8, // SLOW for learners
     ensureVoices() {
       return new Promise((resolve) => {
-        const load = () => {
-          Speech.voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+        if (!('speechSynthesis' in window)) { resolve(); return; }
+        const setVoices = () => {
+          Speech.voices = window.speechSynthesis.getVoices() || [];
           Speech.ready = Speech.voices.length > 0;
           resolve();
         };
-        if (!('speechSynthesis' in window)) { resolve(); return; }
-        const v = window.speechSynthesis.getVoices();
-        if (v.length) { load(); }
-        else { window.speechSynthesis.onvoiceschanged = load; }
+        const existing = window.speechSynthesis.getVoices();
+        if (existing && existing.length) setVoices();
+        else window.speechSynthesis.onvoiceschanged = setVoices;
       });
     },
     pickVoice(langPrefix) {
       if (!Speech.ready) return null;
-      langPrefix = (langPrefix || 'en').toLowerCase();
-      const exact = Speech.voices.find(v => v.lang.toLowerCase().startsWith(langPrefix));
+      const lp = (langPrefix||'en').toLowerCase();
+      const exact = Speech.voices.find(v => v.lang && v.lang.toLowerCase().startsWith(lp));
       if (exact) return exact;
-      // sensible fallbacks
-      if (langPrefix.startsWith('es')) {
-        return Speech.voices.find(v => v.lang.toLowerCase().startsWith('es')) ||
-               Speech.voices.find(v => v.lang.toLowerCase().startsWith('en')) || null;
+      if (lp.startsWith('es')) {
+        return Speech.voices.find(v => v.lang && v.lang.toLowerCase().startsWith('es')) ||
+               Speech.voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en')) || null;
       }
-      return Speech.voices.find(v => v.lang.toLowerCase().startsWith('en')) ||
+      return Speech.voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en')) ||
              Speech.voices[0] || null;
     },
-    stop() {
-      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    },
-    speak(text, langPrefix='en', rate=1) {
+    stop(){ if ('speechSynthesis' in window) window.speechSynthesis.cancel(); },
+    speak(text, langPrefix='en', rate){
       if (!('speechSynthesis' in window)) { alert('Text-to-speech not supported in this browser.'); return; }
-      if (!text || !text.trim()) return;
+      const clean = (text||'').replace(/\s+/g,' ').trim();
+      if (!clean) return;
       Speech.stop();
       const voice = Speech.pickVoice(langPrefix);
-      // chunk large text
-      const chunks = chunkText(text, 180);
-      chunks.forEach(seg => {
+      // split into friendly chunks
+      const chunks = chunkText(clean, 160);
+      chunks.forEach(seg=>{
         const u = new SpeechSynthesisUtterance(seg);
         if (voice) u.voice = voice;
         u.lang = voice ? voice.lang : (langPrefix.startsWith('es') ? 'es-ES' : 'en-US');
-        u.rate = rate || 1;
+        u.rate = rate || Speech.defaultRate;
         window.speechSynthesis.speak(u);
       });
     }
   };
 
-  function chunkText(str, maxLen=180){
+  function chunkText(str, maxLen=160){
     const parts = [];
     const sentences = str.replace(/\s+/g,' ').split(/(?<=[\.\!\?])\s+/);
     let buf = '';
@@ -183,73 +188,82 @@
     return parts;
   }
 
-  // Extract the English or Spanish column text from tables, with graceful fallbacks.
-  function extractLangFromTables(container, target='en'){
-    const wanted = target === 'es' ? 'es' : 'en';
-    let out = [];
-    const tables = container.querySelectorAll('table');
+  /* =========================
+     Per-line TTS injection
+     ========================= */
+  function addPerLineTTS(root){
+    const tables = root.querySelectorAll('table');
     tables.forEach(tbl=>{
       const rows = Array.from(tbl.querySelectorAll('tr'));
       if (!rows.length) return;
-      let header = Array.from(rows[0].querySelectorAll('th')).map(th=>th.textContent.trim().toLowerCase());
-      let startAt = header.length ? 1 : 0;
-      let idx = -1;
-      if (header.length){
-        if (wanted === 'en'){
-          idx = header.findIndex(h => h.includes('english') || h.includes('(en)') || h.includes('answer (en)'));
-        } else {
-          idx = header.findIndex(h => h.includes('español') || h.includes('espanol') || h.includes('(es)') || h.includes('answer (es)') || h.includes('español)'));
-        }
-        if (idx === -1 && header.length === 1) idx = 0; // single-column fallback
-      }
-      rows.slice(startAt).forEach(tr=>{
-        const cells = Array.from(tr.querySelectorAll('td,th'));
-        if (!cells.length) return;
-        if (idx >= 0 && cells[idx]) out.push(cells[idx].innerText.trim());
-        else out.push(tr.innerText.trim());
+
+      const headerCells = Array.from(rows[0].querySelectorAll('th'));
+      const hasHeader = headerCells.length > 0;
+      const colLangMap = mapHeaderToLang(headerCells);
+
+      rows.slice(hasHeader ? 1 : 0).forEach(tr=>{
+        // Skip obvious subcategory/label rows that span all columns
+        const sub = tr.querySelector('.subcategory');
+        if (sub && sub.getAttribute('colspan')) return;
+
+        const cells = Array.from(tr.querySelectorAll('td'));
+        cells.forEach((td, idx)=>{
+          const lang = colLangMap[idx]; // 'en', 'es', or ''
+          if (lang === 'en' || lang === 'es'){
+            insertTTSButton(td, lang);
+          }
+        });
       });
     });
-    // Final fallback if we didn't find table data: use headings + paragraphs
-    if (!out.length){
-      out = [container.innerText || ''];
-    }
-    return out.join('. ').replace(/\n+/g,' ').replace(/\s+\./g,'.').trim();
   }
 
-  // Create a small speakbar with buttons next to an output container
-  function attachSpeakbar(prefix, outputEl, statusEl){
-    const bar = document.createElement('div');
-    bar.className = 'speakbar';
-    bar.innerHTML = `
-      <button class="pill" id="${prefix}-read-en" title="Read English">🔊 Read EN</button>
-      <button class="pill" id="${prefix}-read-es" title="Leer en español">🔊 Read ES</button>
-      <button class="pill" id="${prefix}-stop"   title="Stop">⏹ Stop</button>
-      <span class="small" id="${prefix}-speak-status"></span>
-    `;
-    outputEl.parentNode.insertBefore(bar, outputEl); // put bar just above the output box
-
-    const btnEN = $(`${prefix}-read-en`);
-    const btnES = $(`${prefix}-read-es`);
-    const btnStop = $(`${prefix}-stop`);
-    const speakStatus = $(`${prefix}-speak-status`);
-
-    function setStatus(txt){ if (speakStatus) speakStatus.textContent = txt || ''; }
-
-    btnEN.addEventListener('click', async ()=>{
-      await Speech.ensureVoices();
-      const text = extractLangFromTables(outputEl, 'en');
-      setStatus('Reading English…');
-      Speech.speak(text, 'en', 1);
+  function mapHeaderToLang(ths){
+    const map = [];
+    const norm = s => (s||'').toLowerCase();
+    ths.forEach((th, i)=>{
+      const t = norm(th.textContent);
+      if (t.includes('english') || t.includes('(en)')) map[i] = 'en';
+      else if (t.includes('español') || t.includes('espanol') || t.includes('(es)') || t.includes('prompt (español)')) map[i] = 'es';
+      else if (t.includes('answer (en)')) map[i] = 'en';
+      else if (t.includes('answer (es)')) map[i] = 'es';
+      else map[i] = '';
     });
-    btnES.addEventListener('click', async ()=>{
-      await Speech.ensureVoices();
-      const text = extractLangFromTables(outputEl, 'es');
-      setStatus('Leyendo en español…');
-      Speech.speak(text, 'es', 1);
+    // Single-column fallback: assume Spanish if header looks Spanish-ish, else English.
+    if (ths.length === 1 && (!map[0] || map[0]==='')){
+      const t = norm(ths[0].textContent);
+      map[0] = (t.includes('español') || t.includes('espanol') || t.includes('(es)')) ? 'es' : 'en';
+    }
+    return map;
+  }
+
+  function getCellReadableText(td){
+    // Concatenate text from all child nodes except our buttons
+    let txt = '';
+    td.childNodes.forEach(n=>{
+      const isBtn = n.nodeType===1 && n.tagName==='BUTTON' && n.classList.contains('tts-line-btn');
+      if (!isBtn) txt += (n.textContent || '');
     });
-    btnStop.addEventListener('click', ()=>{
-      Speech.stop();
-      setStatus('Stopped.');
+    return txt.replace(/\s+/g,' ').trim();
+  }
+
+  function insertTTSButton(td, lang){
+    // If already added, skip
+    if (td.querySelector('.tts-line-btn')) return;
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'tts-line-btn';
+    btn.setAttribute('data-tts', lang);
+    btn.title = lang === 'es' ? 'Reproducir esta línea (Español)' : 'Play this line (English)';
+    btn.textContent = '🔊';
+    // Insert in front of cell content
+    td.insertBefore(btn, td.firstChild);
+
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      await Speech.ensureVoices();
+      const text = getCellReadableText(td);
+      Speech.speak(text, lang, Speech.defaultRate); // slow
     });
   }
 
@@ -341,7 +355,7 @@
     <span class="badge">All English vocabulary must render blue; Spanish red, using .en/.es classes.</span>
   </div>
 
-  <!-- RULES... (unchanged) -->
+  <!-- RULES... -->
 
   <div class="section">
     <h2>Nouns / Sustantivos</h2>
@@ -387,9 +401,6 @@
 </div></body></html>`;
       generateResult(prompt,genBtn,statusEl,outputEl);
     });
-
-    // Attach speaker bar for Vocabulary
-    attachSpeakbar('v', $('v-output'), $('v-status'));
 
     $('v-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     $('v-excel').addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,topicEl.value||'Vocabulary'));
@@ -537,9 +548,6 @@
       generateResult(prompt,genBtn,statusEl,outputEl);
     });
 
-    // Attach speaker bar for Conversation
-    attachSpeakbar('c', $('c-output'), $('c-status'));
-
     $('c-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     $('c-excel').addEventListener('click', ()=>downloadAsExcel(outputEl,statusEl,$('c-topic').value||'Conversation'));
   })();
@@ -626,9 +634,6 @@
 </div></body></html>`;
       generateResult(prompt,genBtn,statusEl,outputEl);
     });
-
-    // Attach speaker bar for Test
-    attachSpeakbar('t', $('t-output'), $('t-status'));
 
     $('t-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     $('t-excel').addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,'Test'));
