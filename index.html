@@ -83,7 +83,6 @@
       if(!resp.ok) throw new Error(json.details||json.error||"Unknown server error.");
       outputEl.innerHTML=json.content;
       statusEl.textContent="Success!";
-      // slow per-line TTS buttons into the generated tables
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
     }catch(err){
@@ -201,7 +200,6 @@
       const colLangMap = mapHeaderToLang(headerCells);
 
       rows.slice(hasHeader ? 1 : 0).forEach(tr=>{
-        // Skip subcategory or spacer rows entirely
         if (tr.classList.contains('spacer')) return;
         const firstTd = tr.querySelector('td');
         if (firstTd && firstTd.classList.contains('subcategory')) return;
@@ -210,7 +208,7 @@
 
         const cells = Array.from(tr.querySelectorAll('td'));
         cells.forEach((td, idx)=>{
-          const lang = colLangMap[idx]; // 'en', 'es', or ''
+          const lang = colLangMap[idx];
           if (lang === 'en' || lang === 'es'){
             insertTTSButton(td, lang);
           }
@@ -230,7 +228,6 @@
       else if (t.includes('answer (es)')) map[i] = 'es';
       else map[i] = '';
     });
-    // Single-column fallback: assume Spanish if header looks Spanish-ish, else English.
     if (ths.length === 1 && (!map[0] || map[0]==='')){
       const t = norm(ths[0].textContent);
       map[0] = (t.includes('español') || t.includes('espanol') || t.includes('(es)')) ? 'es' : 'en';
@@ -239,7 +236,6 @@
   }
 
   function getCellReadableText(td){
-    // Concatenate text from all child nodes except our buttons
     let txt = '';
     td.childNodes.forEach(n=>{
       const isBtn = n.nodeType===1 && n.tagName==='BUTTON' && n.classList.contains('tts-line-btn');
@@ -249,23 +245,19 @@
   }
 
   function insertTTSButton(td, lang){
-    // If already added, skip
     if (td.querySelector('.tts-line-btn')) return;
-
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'tts-line-btn';
     btn.setAttribute('data-tts', lang);
     btn.title = lang === 'es' ? 'Reproducir esta línea (Español)' : 'Play this line (English)';
     btn.textContent = '🔊';
-    // Insert in front of cell content
     td.insertBefore(btn, td.firstChild);
-
     btn.addEventListener('click', async (e)=>{
       e.stopPropagation();
       await Speech.ensureVoices();
       const text = getCellReadableText(td);
-      Speech.speak(text, lang, Speech.defaultRate); // slow
+      Speech.speak(text, lang, Speech.defaultRate);
     });
   }
 
@@ -332,6 +324,12 @@
         ? {min:Number(tminEl.value)||presetRanges[levelEl.value].min, max:Number(tmaxEl.value)||presetRanges[levelEl.value].max}
         : presetRanges[levelEl.value];
 
+      // **Counts (SPANISH targets only)**
+      const esTotalMin = range.min;
+      const esTotalMax = range.max;
+      const esPerCatMin = Math.ceil(esTotalMin / 3); // Nouns, Verbs, Descriptive
+      const esPerCatMax = Math.ceil(esTotalMax / 3);
+
       const prompt =
 `<!DOCTYPE html>
 <!-- FCS VOCABULARY OUTPUT (full HTML; no commentary) -->
@@ -362,46 +360,52 @@
     <span class="badge">Two columns only. Target words are blue in EN and red in ES.</span>
   </div>
 
-  <!-- STRICT RULES FOR THE MODEL (not visible to students)
-    FORMAT:
-      - Exactly TWO columns in every table: English | Español.
-      - Each row is a complete, natural sentence (no isolated words).
-      - Wrap the target vocabulary once per sentence using:
-          English: <span class="en">target</span>
-          Spanish: <span class="es">objetivo</span>
-      - Within each section, alphabetize by the EN target (ignore leading "to " for verbs).
-      - Add helpful subcategories as a full-width row: 
-          <tr><td class="subcategory" colspan="2">Subcategory Name</td></tr>
+  <!-- STRICT, ENFORCEABLE RULES FOR THE MODEL
+    GLOBAL FORMAT
+      • Exactly TWO columns in every table: English | Español.
+      • Every row is a natural full sentence.
+      • Wrap the SINGLE target vocabulary per row with:
+          English: <span class="en">…</span>
+          Spanish: <span class="es">…</span>
+      • Alphabetize rows within each section by EN target (ignore 'to ' for verbs).
+      • If teacher provided extra vocabulary, incorporate it into best-fit sections naturally.
 
-    SECTIONS (in this order):
-      1) Nouns / Sustantivos
-      2) Verbs / Verbos
-      3) Descriptive Words / Palabras descriptivas
-      4) Common Phrases / Frases comunes
-      5) Common Questions / Preguntas comunes
+    SPANISH-WORD COUNTS (HARD REQUIREMENTS)
+      • COUNT ONLY UNIQUE SPANISH targets (the words inside <span class="es">…</span>).
+      • Total across Nouns + Verbs + Descriptive MUST be between ${esTotalMin} and ${esTotalMax}.
+      • Split these totals EQUALLY across the three sections:
+            – Nouns: at least ${esPerCatMin} unique Spanish targets (do not exceed ${esPerCatMax}).
+            – Verbs: at least ${esPerCatMin} unique Spanish targets (do not exceed ${esPerCatMax}).
+            – Descriptive: at least ${esPerCatMin} unique Spanish targets (do not exceed ${esPerCatMax}).
+      • Keep adding rows until each section meets its minimum. Stop adding once the global maximum would be exceeded.
+      • Phrases & Questions do NOT count toward these totals.
 
-    COMMON QUESTIONS:
-      - Put the question row in BOLD in both columns.
-      - Immediately below, add a non-bold sample answer row (both columns).
-      - Then insert a blank spacer row:
-          <tr class="spacer"><td></td><td></td></tr>
+    NOUNS → SUBCATEGORIES (MANDATORY)
+      • Inside Nouns, group items under these subcategory headers (use the exact header rows):
+          <tr><td class="subcategory" colspan="2">People</td></tr>
+          <tr><td class="subcategory" colspan="2">Places & Locations</td></tr>
+          <tr><td class="subcategory" colspan="2">Objects & Things</td></tr>
+          <tr><td class="subcategory" colspan="2">Food & Drink</td></tr>
+          <tr><td class="subcategory" colspan="2">Transportation & Travel</td></tr>
+          <tr><td class="subcategory" colspan="2">Time & Schedules</td></tr>
+          <tr><td class="subcategory" colspan="2">Nature & Weather</td></tr>
+      • Place nouns under the appropriate subcategory. Do NOT place noun rows outside subcategories.
 
-    COUNTS (STRICT):
-      - Total UNIQUE English targets across Nouns + Verbs + Descriptive must be between ${range.min} and ${range.max}.
-      - Keep adding rows until you reach at least ${range.min}. Do NOT stop early.
-      - Phrases and Questions are extra and do not count toward that total.
+    COMMON QUESTIONS (PAIRING)
+      • Write the question row in BOLD (both columns).
+      • Immediately below, add a non-bold sample answer (both columns).
+      • Then insert a blank spacer row: <tr class="spacer"><td></td><td></td></tr>
 
-    QUALITY:
-      - Grammar must be correct and sound natural for everyday use.
-      - Use level-appropriate vocabulary and structures for ${levelTexts[levelEl.value]}.
-      - If teacher provided “Vocabulary to Include”, ensure those appear in the best-fit section(s).
+    QUALITY
+      • Sentences must be grammatically correct and natural for everyday speech/writing.
+      • Respect level scope for ${levelTexts[levelEl.value]}.
   -->
 
   <div class="section">
     <h2>Nouns / Sustantivos</h2>
     <table>
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- model inserts rows --></tbody>
+      <tbody><!-- model inserts subcategory headers + rows under each; meets ${esPerCatMin}–${esPerCatMax} SPANISH targets --></tbody>
     </table>
   </div>
 
@@ -409,7 +413,7 @@
     <h2>Verbs / Verbos</h2>
     <table>
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- model inserts rows --></tbody>
+      <tbody><!-- model inserts rows; meets ${esPerCatMin}–${esPerCatMax} SPANISH targets --></tbody>
     </table>
   </div>
 
@@ -417,7 +421,7 @@
     <h2>Descriptive Words / Palabras descriptivas</h2>
     <table>
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- model inserts rows --></tbody>
+      <tbody><!-- model inserts rows; meets ${esPerCatMin}–${esPerCatMax} SPANISH targets --></tbody>
     </table>
   </div>
 
@@ -425,7 +429,7 @@
     <h2>Common Phrases / Frases comunes</h2>
     <table>
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- model inserts rows --></tbody>
+      <tbody><!-- model inserts rows (extra, not counted) --></tbody>
     </table>
   </div>
 
@@ -433,7 +437,7 @@
     <h2>Common Questions / Preguntas comunes</h2>
     <table>
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- model inserts Q/A pairs with spacer rows --></tbody>
+      <tbody><!-- model inserts Q → A pairs with spacer rows (extra, not counted) --></tbody>
     </table>
   </div>
 
@@ -491,12 +495,12 @@
 
       const fibCount = Math.max(8, Math.min(20, Math.round(Number($('c-turns').value) * 0.8)));
 
-      // ==== TIMEOUT GUARD: truncate very large teacher vocab lists ====
+      // TIMEOUT GUARD for very large teacher lists
       const raw = $('c-vocab').value.trim();
       let vocabNote = '';
       let safeVocabForPrompt = '';
       if (raw) {
-        const lines = Array.from(new Set(raw.split(/\r?\n/).map(s=>s.trim()).filter(Boolean))); // dedupe
+        const lines = Array.from(new Set(raw.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)));
         const MAX_LINES = 120;
         const truncated = lines.slice(0, MAX_LINES);
         if (lines.length > MAX_LINES) {
@@ -667,8 +671,6 @@
 <body><div class="fcs-doc">
   <h1>FCS Conversation Test — Level ${$('t-level').value}</h1>
   <div class="note"><span class="en">English terms = blue</span>; <span class="es">Spanish terms = red</span> using .en/.es classes whenever vocabulary appears inline.</div>
-
-  <!-- MODEL RULES... -->
 
   <div class="section">
     <h2>Part 1 — Spanish → English</h2>
