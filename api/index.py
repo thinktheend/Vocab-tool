@@ -30,7 +30,7 @@ class handler(BaseHTTPRequestHandler):
             if not api_key:
                 raise ValueError("Server configuration error: The OPENAI_API_KEY is missing from Vercel env vars.")
 
-            # Call OpenAI (low temperature; strict section fill)
+            # Call OpenAI
             client = OpenAI(api_key=api_key)
             completion = client.chat.completions.create(
                 model="gpt-4o",
