@@ -83,7 +83,7 @@
       if(!resp.ok) throw new Error(json.details||json.error||"Unknown server error.");
       outputEl.innerHTML=json.content;
       statusEl.textContent="Success!";
-      // NEW: add slow per-line TTS buttons into the generated tables
+      // slow per-line TTS buttons into the generated tables
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
     }catch(err){
@@ -164,7 +164,6 @@
       if (!clean) return;
       Speech.stop();
       const voice = Speech.pickVoice(langPrefix);
-      // split into friendly chunks
       const chunks = chunkText(clean, 160);
       chunks.forEach(seg=>{
         const u = new SpeechSynthesisUtterance(seg);
@@ -202,7 +201,10 @@
       const colLangMap = mapHeaderToLang(headerCells);
 
       rows.slice(hasHeader ? 1 : 0).forEach(tr=>{
-        // Skip obvious subcategory/label rows that span all columns
+        // Skip subcategory or spacer rows entirely
+        if (tr.classList.contains('spacer')) return;
+        const firstTd = tr.querySelector('td');
+        if (firstTd && firstTd.classList.contains('subcategory')) return;
         const sub = tr.querySelector('.subcategory');
         if (sub && sub.getAttribute('colspan')) return;
 
@@ -325,9 +327,14 @@
 
     genBtn.addEventListener('click', ()=>{
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
+
+      const range = tmodeEl.value==='custom'
+        ? {min:Number(tminEl.value)||presetRanges[levelEl.value].min, max:Number(tmaxEl.value)||presetRanges[levelEl.value].max}
+        : presetRanges[levelEl.value];
+
       const prompt =
 `<!DOCTYPE html>
-<!-- FCS VOCABULARY OUTPUT -->
+<!-- FCS VOCABULARY OUTPUT (full HTML; no commentary) -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Vocabulary — ${topicEl.value}</title>
 <style>
@@ -338,66 +345,99 @@
   h2{font-size:13pt;color:var(--h);margin:16px 0 8px 0;text-align:center}
   .section{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px;margin-top:14px;overflow-x:auto}
   .legend{font-size:9pt;color:var(--muted);text-align:center;margin:6px 0 0 0}
-  .tbl{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
-  .tbl th,.tbl td{border:1px solid var(--border);padding:6px;vertical-align:top}
-  .tbl th{background:#f5f7fb;font-weight:700}
-  .tbl tr:nth-child(even) td{background:#fafafa}
+  table{width:100%;border-collapse:separate;border-spacing:0;margin-top:10px}
+  th,td{border:1px solid var(--border);padding:6px;vertical-align:top}
+  th{background:#f5f7fb;font-weight:700}
+  tr:nth-child(even) td{background:#fafafa}
   .en{color:var(--en);font-weight:700} .es{color:var(--es);font-weight:700}
   .subcategory{background:#eef2ff;font-weight:700;text-align:left}
+  .spacer td{border:none;height:10px;background:#fff}
   .badge{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:#f8fafc;font-size:9pt;margin:6px}
   .note{font-size:9pt;color:var(--muted)}
-  @media(max-width:700px){ .tbl{font-size:9pt;width:auto} }
 </style></head>
 <body><div class="fcs-doc" lang="en">
   <h1>Vocabulary: ${topicEl.value} — ${levelTexts[levelEl.value]}</h1>
   <div class="legend">
     <span class="badge"><span class="en">English</span> / <span class="es" lang="es">Español</span></span>
-    <span class="badge">All English vocabulary must render blue; Spanish red, using .en/.es classes.</span>
+    <span class="badge">Two columns only. Target words are blue in EN and red in ES.</span>
   </div>
 
-  <!-- RULES... -->
+  <!-- STRICT RULES FOR THE MODEL (not visible to students)
+    FORMAT:
+      - Exactly TWO columns in every table: English | Español.
+      - Each row is a complete, natural sentence (no isolated words).
+      - Wrap the target vocabulary once per sentence using:
+          English: <span class="en">target</span>
+          Spanish: <span class="es">objetivo</span>
+      - Within each section, alphabetize by the EN target (ignore leading "to " for verbs).
+      - Add helpful subcategories as a full-width row: 
+          <tr><td class="subcategory" colspan="2">Subcategory Name</td></tr>
+
+    SECTIONS (in this order):
+      1) Nouns / Sustantivos
+      2) Verbs / Verbos
+      3) Descriptive Words / Palabras descriptivas
+      4) Common Phrases / Frases comunes
+      5) Common Questions / Preguntas comunes
+
+    COMMON QUESTIONS:
+      - Put the question row in BOLD in both columns.
+      - Immediately below, add a non-bold sample answer row (both columns).
+      - Then insert a blank spacer row:
+          <tr class="spacer"><td></td><td></td></tr>
+
+    COUNTS (STRICT):
+      - Total UNIQUE English targets across Nouns + Verbs + Descriptive must be between ${range.min} and ${range.max}.
+      - Keep adding rows until you reach at least ${range.min}. Do NOT stop early.
+      - Phrases and Questions are extra and do not count toward that total.
+
+    QUALITY:
+      - Grammar must be correct and sound natural for everyday use.
+      - Use level-appropriate vocabulary and structures for ${levelTexts[levelEl.value]}.
+      - If teacher provided “Vocabulary to Include”, ensure those appear in the best-fit section(s).
+  -->
 
   <div class="section">
     <h2>Nouns / Sustantivos</h2>
-    <table class="tbl">
-      <thead><tr><th>English</th><th lang="es">Español</th><th>Definition / Example</th></tr></thead>
-      <tbody><!-- INSERT NOUN ROWS --></tbody>
+    <table>
+      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+      <tbody><!-- model inserts rows --></tbody>
     </table>
   </div>
 
   <div class="section">
     <h2>Verbs / Verbos</h2>
-    <table class="tbl">
-      <thead><tr><th>English</th><th lang="es">Español</th><th>Definition / Example</th></tr></thead>
-      <tbody><!-- INSERT VERB ROWS --></tbody>
+    <table>
+      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+      <tbody><!-- model inserts rows --></tbody>
     </table>
   </div>
 
   <div class="section">
     <h2>Descriptive Words / Palabras descriptivas</h2>
-    <table class="tbl">
-      <thead><tr><th>English</th><th lang="es">Español</th><th>Definition / Example</th></tr></thead>
-      <tbody><!-- INSERT DESCRIPTIVE ROWS --></tbody>
+    <table>
+      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+      <tbody><!-- model inserts rows --></tbody>
     </table>
   </div>
 
   <div class="section">
     <h2>Common Phrases / Frases comunes</h2>
-    <table class="tbl">
-      <thead><tr><th>English</th><th lang="es">Español</th><th>Meaning / Example</th></tr></thead>
-      <tbody><!-- INSERT PHRASE ROWS --></tbody>
+    <table>
+      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+      <tbody><!-- model inserts rows --></tbody>
     </table>
   </div>
 
   <div class="section">
     <h2>Common Questions / Preguntas comunes</h2>
-    <table class="tbl">
-      <thead><tr><th>English</th><th lang="es">Español</th><th>Sample Answer</th></tr></thead>
-      <tbody><!-- INSERT QUESTION ROWS --></tbody>
+    <table>
+      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+      <tbody><!-- model inserts Q/A pairs with spacer rows --></tbody>
     </table>
   </div>
 
-  <div class="note">Included terms from user: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.</div>
+  <div class="note">Included terms from teacher: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.</div>
 </div></body></html>`;
       generateResult(prompt,genBtn,statusEl,outputEl);
     });
@@ -451,6 +491,20 @@
 
       const fibCount = Math.max(8, Math.min(20, Math.round(Number($('c-turns').value) * 0.8)));
 
+      // ==== TIMEOUT GUARD: truncate very large teacher vocab lists ====
+      const raw = $('c-vocab').value.trim();
+      let vocabNote = '';
+      let safeVocabForPrompt = '';
+      if (raw) {
+        const lines = Array.from(new Set(raw.split(/\r?\n/).map(s=>s.trim()).filter(Boolean))); // dedupe
+        const MAX_LINES = 120;
+        const truncated = lines.slice(0, MAX_LINES);
+        if (lines.length > MAX_LINES) {
+          vocabNote = `\n(Teacher list truncated to first ${MAX_LINES} items for performance; include as many as naturally possible.)`;
+        }
+        safeVocabForPrompt = truncated.join('\n').replace(/</g,"&lt;").replace(/>/g,"&gt;");
+      }
+
       const prompt =
 `<!DOCTYPE html>
 <!-- FCS CONVERSATION OUTPUT (Full HTML; no commentary) -->
@@ -494,7 +548,16 @@
       : '<strong>Spanish-only:</strong> English column omitted.'}
   </div>
 
-  <!-- COMPLIANCE (REQUIRED) ... -->
+  <!-- COMPLIANCE (REQUIRED):
+     - Create ${$('c-numConvos').value} conversation(s) with ${$('c-numSpeakers').value} speaker(s), ~${$('c-minutes').value} minutes, ~${$('c-turns').value} turns.
+     - Tone: ${$('c-tone').value}; Region: ${$('c-country').value}
+     - Use the teacher vocabulary (below) where natural; if long, prioritize high-frequency items.${vocabNote}
+     - Bold target words with <span class="en">…</span> and <span class="es">…</span>.
+     - Dialogues use a TABLE. Label speakers (A:, B:, C:). No blanks/underscores in dialogues.
+     - Practices (if requested): ${$('c-addFib').value}, focus ${$('c-fibFocus').value}, include key = ${$('c-showFIBKey').value}, two-column if Include EN = ${$('c-includeEN').value}.
+     - If Show Vocabulary List = ${$('c-showVocabList').value}, append a mini EN|ES table of used vocab.
+     - Respect grammar scope for Level ${$('c-level').value}.
+  -->
 
   ${Array.from({length: Number($('c-numConvos').value)}).map((_,i)=>`
   <div class="section">
@@ -537,9 +600,14 @@
     </table>
   </div>
 
-  ${$('c-vocab').value ? `
+  ${safeVocabForPrompt ? `
   <div class="note" style="white-space:pre-wrap;border:1px dashed var(--border);padding:8px;border-radius:8px;margin-top:8px;">
-    Teacher Vocabulary (STRICT use):\n${$('c-vocab').value.replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+    Teacher Vocabulary:\n${safeVocabForPrompt}
+  </div>` : ''}
+
+  ${$('c-notes').value ? `
+  <div class="note" style="white-space:pre-wrap;border:1px dashed var(--border);padding:8px;border-radius:8px;margin-top:8px;">
+    Teacher Notes:\n${$('c-notes').value.replace(/</g,"&lt;").replace(/>/g,"&gt;")}
   </div>` : ''}
 
 </div>
