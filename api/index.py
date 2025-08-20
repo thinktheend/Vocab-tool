@@ -28,50 +28,53 @@ class handler(BaseHTTPRequestHandler):
             # API key
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
-                raise ValueError("Server configuration error: The OPENAI_API_KEY is missing.")
+                raise ValueError("Server configuration error: The OPENAI_API_KEY is missing from Vercel env vars.")
 
-            # Call OpenAI with tighter controls to avoid timeouts and runaway prompts
+            # Call OpenAI (low temperature; strict section fill)
             client = OpenAI(api_key=api_key)
             completion = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.25,
-                max_tokens=3200,  # cap output size
                 messages=[
                     {
                         "role": "system",
                         "content": (
                             "You are an expert assistant for the Fast Conversational Spanish (FCS) program. "
-                            "Return ONLY a full self-contained HTML document. "
-                            "Before you reply, confirm that every section in the user template is filled; no <tbody> may be empty. "
-                            "For vocabulary, enforce the exact minimum and maximum counts per section and per level, "
-                            "and provide a counts summary table. "
-                            "Use <span class='en'> for English (blue) and <span class='es'> for Spanish (red) terms consistently. "
-                            "Do not include commentary, code fences, or greetings."
+                            "Return ONLY the raw HTML (a full, valid, self-contained document). "
+                            "BEFORE YOU REPLY: verify that every required section in the user's template is populated. "
+                            "No table may have an empty <tbody>. "
+                            "If any section would be empty, you MUST generate appropriate content to fill it. "
+                            "Do NOT leave placeholder comments; output final content only. "
+                            "Do NOT add greetings, explanations, or code fences like ```html."
                         )
                     },
                     {"role": "user", "content": prompt}
-                ],
-                timeout=210  # seconds (less than typical 300s limits)
+                ]
             )
 
-            html = completion.choices[0].message.content or ""
-            # Strip accidental code fences
-            if "```" in html:
-                parts = html.split("```")
+            ai_content = completion.choices[0].message.content or ""
+
+            # Strip code fences just in case
+            if "```" in ai_content:
+                parts = ai_content.split("```")
                 if len(parts) > 1:
-                    html = parts[1]
-                    if html.startswith(('html', 'markdown', 'xml')):
-                        html = html.split('\n', 1)[1]
+                    ai_content = parts[1]
+                    if ai_content.startswith(('html', 'markdown', 'xml')):
+                        ai_content = ai_content.split('\n', 1)[1]
+
+            response_payload = {"content": ai_content.strip()}
 
             self.send_response(200)
             self.send_header('Content-type', 'application/json; charset=utf-8')
             self._send_cors_headers()
             self.end_headers()
-            self.wfile.write(json.dumps({"content": html.strip()}).encode('utf-8'))
+            self.wfile.write(json.dumps(response_payload).encode('utf-8'))
 
         except Exception as e:
+            print(f"AN ERROR OCCURRED: {e}")
             self.send_response(500)
             self.send_header('Content-type', 'application/json; charset=utf-8')
             self._send_cors_headers()
             self.end_headers()
-            self.wfile.write(json.dumps({"error": str(e)}).encode('utf-8'))
+            error_payload = {"error": "An internal server error occurred.", "details": str(e)}
+            self.wfile.write(json.dumps(error_payload).encode('utf-8'))
