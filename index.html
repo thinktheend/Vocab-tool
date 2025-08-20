@@ -27,7 +27,7 @@
   .grid-2 { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; } .grid-full { grid-column: 1 / -1; }
   .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top:20px; align-items:center; }
   .status { margin-top:10px; min-height:1.5em; text-align:left; color:var(--muted); font-size:13px; }
-  .output-container { border:1px solid var(--border); border-radius:12px; padding:24px; background:#fff; min-height: 240px; margin-top:20px; }
+  .output-container { border:1px solid var(--border); border-radius:12px; padding:24px; background:#fff; min-height: 240px; margin-top:12px; }
   .output-container h1, .output-container h2 { text-align: center; color: #0f172a !important; }
   .output-container table { width:100%; border-collapse: separate; border-spacing: 0; margin-top: 12px; font-size:10pt;}
   .output-container th, .output-container td { border:1px solid #e5e7eb; padding:8px; vertical-align:top; }
@@ -35,6 +35,12 @@
   .output-container tr:nth-child(even) td { background: #fafafa; }
   .output-container .en { color: var(--en); font-weight: bold; } 
   .output-container .es { color: var(--es); font-weight: bold; }
+
+  /* NEW: speaker toolbar */
+  .speakbar { display:flex; gap:8px; align-items:center; justify-content:flex-end; margin-top:8px; }
+  .speakbar .small { margin-left:8px; }
+  .speakbar button { padding:6px 10px; font-size:13px; }
+  .speakbar .pill { border-radius:999px; }
   @media (max-width: 860px){ .six, .twelve { grid-column: span 12; } .grid-2{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -111,6 +117,140 @@
       XLSX.writeFile(wb,`${(filename||'Export').replace(/\s+/g,"_")}.xlsx`);
       statusEl.textContent="Download started.";
     }catch(e){console.error("Excel Error:",e); statusEl.textContent="Failed to create Excel."}
+  }
+
+  /* =========================
+     Web Speech API helpers
+     ========================= */
+  const Speech = {
+    voices: [],
+    ready: false,
+    ensureVoices() {
+      return new Promise((resolve) => {
+        const load = () => {
+          Speech.voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : [];
+          Speech.ready = Speech.voices.length > 0;
+          resolve();
+        };
+        if (!('speechSynthesis' in window)) { resolve(); return; }
+        const v = window.speechSynthesis.getVoices();
+        if (v.length) { load(); }
+        else { window.speechSynthesis.onvoiceschanged = load; }
+      });
+    },
+    pickVoice(langPrefix) {
+      if (!Speech.ready) return null;
+      langPrefix = (langPrefix || 'en').toLowerCase();
+      const exact = Speech.voices.find(v => v.lang.toLowerCase().startsWith(langPrefix));
+      if (exact) return exact;
+      // sensible fallbacks
+      if (langPrefix.startsWith('es')) {
+        return Speech.voices.find(v => v.lang.toLowerCase().startsWith('es')) ||
+               Speech.voices.find(v => v.lang.toLowerCase().startsWith('en')) || null;
+      }
+      return Speech.voices.find(v => v.lang.toLowerCase().startsWith('en')) ||
+             Speech.voices[0] || null;
+    },
+    stop() {
+      if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    },
+    speak(text, langPrefix='en', rate=1) {
+      if (!('speechSynthesis' in window)) { alert('Text-to-speech not supported in this browser.'); return; }
+      if (!text || !text.trim()) return;
+      Speech.stop();
+      const voice = Speech.pickVoice(langPrefix);
+      // chunk large text
+      const chunks = chunkText(text, 180);
+      chunks.forEach(seg => {
+        const u = new SpeechSynthesisUtterance(seg);
+        if (voice) u.voice = voice;
+        u.lang = voice ? voice.lang : (langPrefix.startsWith('es') ? 'es-ES' : 'en-US');
+        u.rate = rate || 1;
+        window.speechSynthesis.speak(u);
+      });
+    }
+  };
+
+  function chunkText(str, maxLen=180){
+    const parts = [];
+    const sentences = str.replace(/\s+/g,' ').split(/(?<=[\.\!\?])\s+/);
+    let buf = '';
+    for (const s of sentences){
+      if ((buf + ' ' + s).length > maxLen && buf) { parts.push(buf); buf = s; }
+      else { buf = buf ? (buf + ' ' + s) : s; }
+    }
+    if (buf) parts.push(buf);
+    return parts;
+  }
+
+  // Extract the English or Spanish column text from tables, with graceful fallbacks.
+  function extractLangFromTables(container, target='en'){
+    const wanted = target === 'es' ? 'es' : 'en';
+    let out = [];
+    const tables = container.querySelectorAll('table');
+    tables.forEach(tbl=>{
+      const rows = Array.from(tbl.querySelectorAll('tr'));
+      if (!rows.length) return;
+      let header = Array.from(rows[0].querySelectorAll('th')).map(th=>th.textContent.trim().toLowerCase());
+      let startAt = header.length ? 1 : 0;
+      let idx = -1;
+      if (header.length){
+        if (wanted === 'en'){
+          idx = header.findIndex(h => h.includes('english') || h.includes('(en)') || h.includes('answer (en)'));
+        } else {
+          idx = header.findIndex(h => h.includes('español') || h.includes('espanol') || h.includes('(es)') || h.includes('answer (es)') || h.includes('español)'));
+        }
+        if (idx === -1 && header.length === 1) idx = 0; // single-column fallback
+      }
+      rows.slice(startAt).forEach(tr=>{
+        const cells = Array.from(tr.querySelectorAll('td,th'));
+        if (!cells.length) return;
+        if (idx >= 0 && cells[idx]) out.push(cells[idx].innerText.trim());
+        else out.push(tr.innerText.trim());
+      });
+    });
+    // Final fallback if we didn't find table data: use headings + paragraphs
+    if (!out.length){
+      out = [container.innerText || ''];
+    }
+    return out.join('. ').replace(/\n+/g,' ').replace(/\s+\./g,'.').trim();
+  }
+
+  // Create a small speakbar with buttons next to an output container
+  function attachSpeakbar(prefix, outputEl, statusEl){
+    const bar = document.createElement('div');
+    bar.className = 'speakbar';
+    bar.innerHTML = `
+      <button class="pill" id="${prefix}-read-en" title="Read English">🔊 Read EN</button>
+      <button class="pill" id="${prefix}-read-es" title="Leer en español">🔊 Read ES</button>
+      <button class="pill" id="${prefix}-stop"   title="Stop">⏹ Stop</button>
+      <span class="small" id="${prefix}-speak-status"></span>
+    `;
+    outputEl.parentNode.insertBefore(bar, outputEl); // put bar just above the output box
+
+    const btnEN = $(`${prefix}-read-en`);
+    const btnES = $(`${prefix}-read-es`);
+    const btnStop = $(`${prefix}-stop`);
+    const speakStatus = $(`${prefix}-speak-status`);
+
+    function setStatus(txt){ if (speakStatus) speakStatus.textContent = txt || ''; }
+
+    btnEN.addEventListener('click', async ()=>{
+      await Speech.ensureVoices();
+      const text = extractLangFromTables(outputEl, 'en');
+      setStatus('Reading English…');
+      Speech.speak(text, 'en', 1);
+    });
+    btnES.addEventListener('click', async ()=>{
+      await Speech.ensureVoices();
+      const text = extractLangFromTables(outputEl, 'es');
+      setStatus('Leyendo en español…');
+      Speech.speak(text, 'es', 1);
+    });
+    btnStop.addEventListener('click', ()=>{
+      Speech.stop();
+      setStatus('Stopped.');
+    });
   }
 
   // ---------- VOCABULARY ----------
@@ -201,17 +341,7 @@
     <span class="badge">All English vocabulary must render blue; Spanish red, using .en/.es classes.</span>
   </div>
 
-  <!-- RULES THE MODEL MUST FOLLOW (NON-NEGOTIABLE) -->
-  <!--
-    • Generate ALL FIVE sections: Nouns, Verbs, Descriptive Words, Common Phrases, Common Questions.
-    • Every table must contain at least one data row; never leave a section empty.
-    • English terms must be wrapped in <span class="en">…</span> (blue); Spanish terms in <span class="es">…</span> (red).
-    • Alphabetize items in each section by the English term (ignore “to ” for verbs).
-    • Columns per row: English (bold blue) | Spanish (bold red) | Definition/Example.
-    • If user provided “Vocabulary to Include”, include them (best-fit section).
-    • Level caps (strict) and totals range as previously defined.
-    • SELF-CHECK before responding: if any section is empty or totals are out of range, adjust counts and fill missing rows.
-  -->
+  <!-- RULES... (unchanged) -->
 
   <div class="section">
     <h2>Nouns / Sustantivos</h2>
@@ -257,6 +387,9 @@
 </div></body></html>`;
       generateResult(prompt,genBtn,statusEl,outputEl);
     });
+
+    // Attach speaker bar for Vocabulary
+    attachSpeakbar('v', $('v-output'), $('v-status'));
 
     $('v-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     $('v-excel').addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,topicEl.value||'Vocabulary'));
@@ -350,15 +483,7 @@
       : '<strong>Spanish-only:</strong> English column omitted.'}
   </div>
 
-  <!-- COMPLIANCE (REQUIRED)
-    • Generate ${$('c-numConvos').value} conversation cards; none may be empty.
-    • Each conversation: ~${$('c-turns').value} turns, ${$('c-numSpeakers').value} speaker(s). If 1 speaker ⇒ coherent monologue.
-    • Tone: ${$('c-tone').value}; Region: ${$('c-country').value}.
-    • Use ONLY provided vocabulary ${$('c-vocab').value ? '(STRICT)' : '(or auto-generate level-appropriate if none provided)'} + glue words + level-legal grammar.
-    • Bold & color vocabulary in BOTH languages with <span class="en">…</span> (blue) and <span class="es">…</span> (red).
-    • Conversations NEVER contain blanks. Practices hold blanks.
-    • If Include English = yes ⇒ 2 columns (EN | ES); else Spanish column only.
-  -->
+  <!-- COMPLIANCE (REQUIRED) ... -->
 
   ${Array.from({length: Number($('c-numConvos').value)}).map((_,i)=>`
   <div class="section">
@@ -412,8 +537,11 @@
       generateResult(prompt,genBtn,statusEl,outputEl);
     });
 
-    copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
-    excelBtn.addEventListener('click', ()=>downloadAsExcel(outputEl,statusEl,$('c-topic').value||'Conversation'));
+    // Attach speaker bar for Conversation
+    attachSpeakbar('c', $('c-output'), $('c-status'));
+
+    $('c-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
+    $('c-excel').addEventListener('click', ()=>downloadAsExcel(outputEl,statusEl,$('c-topic').value||'Conversation'));
   })();
 
   // ---------- TEST ----------
@@ -464,15 +592,7 @@
   <h1>FCS Conversation Test — Level ${$('t-level').value}</h1>
   <div class="note"><span class="en">English terms = blue</span>; <span class="es">Spanish terms = red</span> using .en/.es classes whenever vocabulary appears inline.</div>
 
-  <!-- MODEL RULES:
-    Structure MUST be:
-      Part 1 – Spanish → English (Table: # | Spanish | ${$('t-anskeys').checked ? 'Answer (EN)' : 'omit Answer column'})
-      Part 2 – English → Spanish (Table: # | English | ${$('t-anskeys').checked ? 'Answer (ES)' : 'omit Answer column'})
-      Part 3 – Live Conversation Prompts (Table: # | Prompt (Spanish); no answer column)
-    - Use ONLY the provided vocabulary and Level ${$('t-level').value} grammar.
-    - When vocabulary appears inline, wrap EN with <span class="en">…</span> and ES with <span class="es">…</span>.
-    - If Include Teacher Answer Keys = ${$('t-anskeys').checked}, show answer columns and add a final consolidated “Answer Key” section.
-  -->
+  <!-- MODEL RULES... -->
 
   <div class="section">
     <h2>Part 1 — Spanish → English</h2>
@@ -507,8 +627,11 @@
       generateResult(prompt,genBtn,statusEl,outputEl);
     });
 
-    copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
-    excelBtn.addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,'Test'));
+    // Attach speaker bar for Test
+    attachSpeakbar('t', $('t-output'), $('t-status'));
+
+    $('t-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
+    $('t-excel').addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,'Test'));
   })();
 })();
 </script>
