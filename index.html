@@ -83,6 +83,7 @@
       if(!resp.ok) throw new Error(json.details||json.error||"Unknown server error.");
       outputEl.innerHTML=json.content;
       statusEl.textContent="Success!";
+      // Add per-line TTS buttons
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
     }catch(err){
@@ -268,6 +269,7 @@
         <h2>Vocabulary Creator</h2>
         <div class="grid">
           <div class="six"><label for="v-topic">Topic</label><input id="v-topic" type="text" placeholder="e.g., At the Airport"></div>
+
           <div class="six"><label for="v-level">Level</label>
             <select id="v-level">
               <option value="1" selected>Level 1 — Survival</option>
@@ -277,17 +279,34 @@
               <option value="5">Level 5 — Fluent</option>
             </select>
           </div>
+
+          <div class="six">
+            <label for="v-category">Category</label>
+            <select id="v-category">
+              <option value="all" selected>All of the above</option>
+              <option value="nouns">Nouns</option>
+              <option value="verbs">Verbs</option>
+              <option value="descriptive">Descriptive words</option>
+              <option value="phrases">Phrases</option>
+              <option value="questions">Questions</option>
+            </select>
+            <div class="hint">Generate only the selected section(s). “All of the above” outputs all five.</div>
+          </div>
+
           <div class="six">
             <label for="v-tmode">Total Words Mode</label>
             <select id="v-tmode"><option value="default" selected>Preset by Level</option><option value="custom">Custom</option></select>
             <div id="v-presetText" class="hint"></div>
           </div>
+
           <div class="six">
             <div class="grid">
-              <div class="six"><label for="v-tmin">Min</label><input id="v-tmin" type="number" min="1" disabled></div>
-              <div class="six"><label for="v-tmax">Max</label><input id="v-tmax" type="number" min="1" disabled></div>
+              <div class="six"><label for="v-tmin">Min</label><input id="v-tmin" type="number" min="1" max="300" disabled></div>
+              <div class="six"><label for="v-tmax">Max</label><input id="v-tmax" type="number" min="1" max="300" disabled></div>
             </div>
+            <div class="hint">Custom maximum is capped at 300 Spanish words.</div>
           </div>
+
           <div class="twelve">
             <label for="v-vocab-include">Vocabulary to Include (optional)</label>
             <textarea id="v-vocab-include" rows="3" placeholder="Paste a full or partial list of words to include..."></textarea>
@@ -305,30 +324,99 @@
 
     const genBtn=$('v-gen'),excelBtn=$('v-excel'),copyBtn=$('v-copy'),statusEl=$('v-status'),outputEl=$('v-output'),
           levelEl=$("v-level"),tmodeEl=$("v-tmode"),tminEl=$("v-tmin"),tmaxEl=$("v-tmax"),
-          presetTextEl=$("v-presetText"),topicEl=$("v-topic"),vocabIncludeEl=$("v-vocab-include");
+          presetTextEl=$("v-presetText"),topicEl=$("v-topic"),vocabIncludeEl=$("v-vocab-include"),
+          categoryEl=$('v-category');
 
-    const presetRanges={"1":{min:35,max:55},"2":{min:60,max:85},"3":{min:90,max:120},"4":{min:120,max:180},"5":{min:160,max:240}};
-    const levelTexts={"1":"Level 1—Survival","2":"Level 2—Beginner","3":"Level 3—Intermediate","4":"Level 4—Conversational","5":"Level 5—Fluent"};
+    // UPDATED level 5 range; other levels unchanged
+    const presetRanges={
+      "1":{min:35,max:55},
+      "2":{min:60,max:85},
+      "3":{min:90,max:120},
+      "4":{min:120,max:180},
+      "5":{min:180,max:240}
+    };
+    const levelTexts={
+      "1":"Level 1—Survival",
+      "2":"Level 2—Beginner",
+      "3":"Level 3—Intermediate",
+      "4":"Level 4—Conversational",
+      "5":"Level 5—Fluent"
+    };
     function updateUI(){
-      const isCustom=tmodeEl.value==='custom'; const range=presetRanges[levelEl.value];
+      const isCustom=tmodeEl.value==='custom';
+      const range=presetRanges[levelEl.value];
       tminEl.disabled=!isCustom; tmaxEl.disabled=!isCustom;
-      if(!isCustom){tminEl.value=range.min; tmaxEl.value=range.max;}
-      presetTextEl.textContent=`Preset for ${levelTexts[levelEl.value]}: ${range.min}–${range.max} words.`;
+      if(!isCustom){ tminEl.value=range.min; tmaxEl.value=range.max; }
+      presetTextEl.textContent=`Preset for ${levelTexts[levelEl.value]}: ${range.min}–${range.max} Spanish words (total across generated sections).`;
     }
     tmodeEl.addEventListener('change',updateUI); levelEl.addEventListener('change',updateUI); updateUI();
 
     genBtn.addEventListener('click', ()=>{
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
 
-      const range = tmodeEl.value==='custom'
-        ? {min:Number(tminEl.value)||presetRanges[levelEl.value].min, max:Number(tmaxEl.value)||presetRanges[levelEl.value].max}
-        : presetRanges[levelEl.value];
+      const preset = presetRanges[levelEl.value];
+      let minReq = preset.min, maxReq = preset.max;
+      if (tmodeEl.value==='custom'){
+        const userMin = Math.max(1, Number(tminEl.value||preset.min));
+        const userMax = Math.min(300, Number(tmaxEl.value||preset.max));
+        minReq = Math.min(userMin, userMax);
+        maxReq = Math.max(userMin, userMax);
+      }
 
-      // **Counts (SPANISH targets only)**
-      const esTotalMin = range.min;
-      const esTotalMax = range.max;
-      const esPerCatMin = Math.ceil(esTotalMin / 3); // Nouns, Verbs, Descriptive
-      const esPerCatMax = Math.ceil(esTotalMax / 3);
+      const catSel = categoryEl.value; // all, nouns, verbs, descriptive, phrases, questions
+      const includeAll = (catSel==='all');
+      const includeNouns = includeAll || catSel==='nouns';
+      const includeVerbs = includeAll || catSel==='verbs';
+      const includeDesc  = includeAll || catSel==='descriptive';
+      const includePhr   = includeAll || catSel==='phrases';
+      const includeQues  = includeAll || catSel==='questions';
+
+      // Build the HTML template conditionally by category
+      const sectionsHTML = `
+        ${includeNouns ? `
+        <div class="section">
+          <h2>Nouns / Sustantivos</h2>
+          <table>
+            <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+            <tbody><!-- model inserts required subcategory headers + rows under each --></tbody>
+          </table>
+        </div>` : ''}
+
+        ${includeVerbs ? `
+        <div class="section">
+          <h2>Verbs / Verbos</h2>
+          <table>
+            <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+            <tbody><!-- model inserts rows --></tbody>
+          </table>
+        </div>` : ''}
+
+        ${includeDesc ? `
+        <div class="section">
+          <h2>Descriptive Words / Palabras descriptivas</h2>
+          <table>
+            <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+            <tbody><!-- model inserts rows --></tbody>
+          </table>
+        </div>` : ''}
+
+        ${includePhr ? `
+        <div class="section">
+          <h2>Common Phrases / Frases comunes</h2>
+          <table>
+            <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+            <tbody><!-- model inserts rows (extra) --></tbody>
+          </table>
+        </div>` : ''}
+
+        ${includeQues ? `
+        <div class="section">
+          <h2>Common Questions / Preguntas comunes</h2>
+          <table>
+            <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+            <tbody><!-- model inserts Q→A pairs with spacer rows --></tbody>
+          </table>
+        </div>` : ''}`.trim();
 
       const prompt =
 `<!DOCTYPE html>
@@ -360,86 +448,53 @@
     <span class="badge">Two columns only. Target words are blue in EN and red in ES.</span>
   </div>
 
-  <!-- STRICT, ENFORCEABLE RULES FOR THE MODEL
-    GLOBAL FORMAT
+  <!-- STRICT RULES THE MODEL MUST FOLLOW
+
+    GLOBAL & COUNTS
+      • Output ONLY the following section set: ${includeAll ? 'All (Nouns, Verbs, Descriptive, Phrases, Questions)' :
+          (catSel.charAt(0).toUpperCase()+catSel.slice(1))}.
       • Exactly TWO columns in every table: English | Español.
-      • Every row is a natural full sentence.
-      • Wrap the SINGLE target vocabulary per row with:
+      • Every row is a natural full sentence. Each row MUST include exactly one target vocabulary word wrapped as:
           English: <span class="en">…</span>
           Spanish: <span class="es">…</span>
-      • Alphabetize rows within each section by EN target (ignore 'to ' for verbs).
-      • If teacher provided extra vocabulary, incorporate it into best-fit sections naturally.
+      • COUNT ONLY UNIQUE SPANISH targets (inside <span class="es">…</span>), across ALL SECTIONS YOU OUTPUT.
+      • TOTAL Spanish targets across the generated sections MUST be between ${minReq} and ${maxReq}.
+        – Keep adding rows until you reach at least ${minReq}.
+        – Stop before exceeding ${maxReq}.
+        – Custom maximum must never exceed 300.
+      • If only one section is selected, meet the entire total inside that section.
+      • Alphabetize rows within each section by the EN target (ignore “to ” for verbs).
 
-    SPANISH-WORD COUNTS (HARD REQUIREMENTS)
-      • COUNT ONLY UNIQUE SPANISH targets (the words inside <span class="es">…</span>).
-      • Total across Nouns + Verbs + Descriptive MUST be between ${esTotalMin} and ${esTotalMax}.
-      • Split these totals EQUALLY across the three sections:
-            – Nouns: at least ${esPerCatMin} unique Spanish targets (do not exceed ${esPerCatMax}).
-            – Verbs: at least ${esPerCatMin} unique Spanish targets (do not exceed ${esPerCatMax}).
-            – Descriptive: at least ${esPerCatMin} unique Spanish targets (do not exceed ${esPerCatMax}).
-      • Keep adding rows until each section meets its minimum. Stop adding once the global maximum would be exceeded.
-      • Phrases & Questions do NOT count toward these totals.
-
-    NOUNS → SUBCATEGORIES (MANDATORY)
-      • Inside Nouns, group items under these subcategory headers (use the exact header rows):
-          <tr><td class="subcategory" colspan="2">People</td></tr>
-          <tr><td class="subcategory" colspan="2">Places & Locations</td></tr>
-          <tr><td class="subcategory" colspan="2">Objects & Things</td></tr>
-          <tr><td class="subcategory" colspan="2">Food & Drink</td></tr>
-          <tr><td class="subcategory" colspan="2">Transportation & Travel</td></tr>
-          <tr><td class="subcategory" colspan="2">Time & Schedules</td></tr>
-          <tr><td class="subcategory" colspan="2">Nature & Weather</td></tr>
-      • Place nouns under the appropriate subcategory. Do NOT place noun rows outside subcategories.
-
-    COMMON QUESTIONS (PAIRING)
-      • Write the question row in BOLD (both columns).
-      • Immediately below, add a non-bold sample answer (both columns).
-      • Then insert a blank spacer row: <tr class="spacer"><td></td><td></td></tr>
+    CATEGORY-SPECIFIC SENTENCE PATTERNS
+      NOUNS:
+        • Noun rows are grouped under these subcategory headers (use exactly these header rows):
+            <tr><td class="subcategory" colspan="2">People</td></tr>
+            <tr><td class="subcategory" colspan="2">Places & Locations</td></tr>
+            <tr><td class="subcategory" colspan="2">Objects & Things</td></tr>
+            <tr><td class="subcategory" colspan="2">Food & Drink</td></tr>
+            <tr><td class="subcategory" colspan="2">Transportation & Travel</td></tr>
+            <tr><td class="subcategory" colspan="2">Time & Schedules</td></tr>
+            <tr><td class="subcategory" colspan="2">Nature & Weather</td></tr>
+        • Sentences MUST begin with “Here is …” or “It is …” (choose whichever fits the noun and keep nouns singular to match).
+      VERBS:
+        • Each sentence MUST start with one of:
+            “I am going to …” | “We are going to …” | “They are going to …” | “It is going to …”
+          Choose subjects that fit the verb naturally.
+      DESCRIPTIVE WORDS:
+        • Sentences MUST be in the PRESENT tense.
+      PHRASES:
+        • Use short, natural sentences that clearly demonstrate the phrase in context.
+      QUESTIONS:
+        • Write the question row in BOLD (wrap the entire sentence in <strong>…</strong> in both columns).
+        • Immediately below, add a non-bold sample answer (both columns).
+        • Then insert a spacer row:  <tr class="spacer"><td></td><td></td></tr>
 
     QUALITY
-      • Sentences must be grammatically correct and natural for everyday speech/writing.
-      • Respect level scope for ${levelTexts[levelEl.value]}.
+      • Grammar must respect ${levelTexts[levelEl.value]} scope.
+      • Use the optional teacher vocabulary where it fits naturally.
   -->
 
-  <div class="section">
-    <h2>Nouns / Sustantivos</h2>
-    <table>
-      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- model inserts subcategory headers + rows under each; meets ${esPerCatMin}–${esPerCatMax} SPANISH targets --></tbody>
-    </table>
-  </div>
-
-  <div class="section">
-    <h2>Verbs / Verbos</h2>
-    <table>
-      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- model inserts rows; meets ${esPerCatMin}–${esPerCatMax} SPANISH targets --></tbody>
-    </table>
-  </div>
-
-  <div class="section">
-    <h2>Descriptive Words / Palabras descriptivas</h2>
-    <table>
-      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- model inserts rows; meets ${esPerCatMin}–${esPerCatMax} SPANISH targets --></tbody>
-    </table>
-  </div>
-
-  <div class="section">
-    <h2>Common Phrases / Frases comunes</h2>
-    <table>
-      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- model inserts rows (extra, not counted) --></tbody>
-    </table>
-  </div>
-
-  <div class="section">
-    <h2>Common Questions / Preguntas comunes</h2>
-    <table>
-      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- model inserts Q → A pairs with spacer rows (extra, not counted) --></tbody>
-    </table>
-  </div>
+  ${sectionsHTML}
 
   <div class="note">Included terms from teacher: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.</div>
 </div></body></html>`;
@@ -495,20 +550,6 @@
 
       const fibCount = Math.max(8, Math.min(20, Math.round(Number($('c-turns').value) * 0.8)));
 
-      // TIMEOUT GUARD for very large teacher lists
-      const raw = $('c-vocab').value.trim();
-      let vocabNote = '';
-      let safeVocabForPrompt = '';
-      if (raw) {
-        const lines = Array.from(new Set(raw.split(/\r?\n/).map(s=>s.trim()).filter(Boolean)));
-        const MAX_LINES = 120;
-        const truncated = lines.slice(0, MAX_LINES);
-        if (lines.length > MAX_LINES) {
-          vocabNote = `\n(Teacher list truncated to first ${MAX_LINES} items for performance; include as many as naturally possible.)`;
-        }
-        safeVocabForPrompt = truncated.join('\n').replace(/</g,"&lt;").replace(/>/g,"&gt;");
-      }
-
       const prompt =
 `<!DOCTYPE html>
 <!-- FCS CONVERSATION OUTPUT (Full HTML; no commentary) -->
@@ -552,16 +593,7 @@
       : '<strong>Spanish-only:</strong> English column omitted.'}
   </div>
 
-  <!-- COMPLIANCE (REQUIRED):
-     - Create ${$('c-numConvos').value} conversation(s) with ${$('c-numSpeakers').value} speaker(s), ~${$('c-minutes').value} minutes, ~${$('c-turns').value} turns.
-     - Tone: ${$('c-tone').value}; Region: ${$('c-country').value}
-     - Use the teacher vocabulary (below) where natural; if long, prioritize high-frequency items.${vocabNote}
-     - Bold target words with <span class="en">…</span> and <span class="es">…</span>.
-     - Dialogues use a TABLE. Label speakers (A:, B:, C:). No blanks/underscores in dialogues.
-     - Practices (if requested): ${$('c-addFib').value}, focus ${$('c-fibFocus').value}, include key = ${$('c-showFIBKey').value}, two-column if Include EN = ${$('c-includeEN').value}.
-     - If Show Vocabulary List = ${$('c-showVocabList').value}, append a mini EN|ES table of used vocab.
-     - Respect grammar scope for Level ${$('c-level').value}.
-  -->
+  <!-- COMPLIANCE (REQUIRED) ... -->
 
   ${Array.from({length: Number($('c-numConvos').value)}).map((_,i)=>`
   <div class="section">
@@ -604,9 +636,9 @@
     </table>
   </div>
 
-  ${safeVocabForPrompt ? `
+  ${$('c-vocab').value ? `
   <div class="note" style="white-space:pre-wrap;border:1px dashed var(--border);padding:8px;border-radius:8px;margin-top:8px;">
-    Teacher Vocabulary:\n${safeVocabForPrompt}
+    Teacher Vocabulary (STRICT use):\n${$('c-vocab').value.replace(/</g,"&lt;").replace(/>/g,"&gt;")}
   </div>` : ''}
 
   ${$('c-notes').value ? `
