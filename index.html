@@ -45,7 +45,7 @@
   .tts-line-btn[data-tts="es"] { background:#fdeaea; border-color:#f5c2c7; }
   .tts-line-btn:hover { filter:brightness(0.98); }
 
-  /* Conversation play/pause/resume + stop buttons */
+  /* Conversation Play/Pause/Resume + Stop */
   .tts-btn-group { display:flex; gap:8px; align-items:center; margin:6px 0 8px 0; flex-wrap:wrap; }
   .tts-toggleall-btn, .tts-stopall-btn {
     display:inline-flex; align-items:center; gap:6px;
@@ -128,7 +128,7 @@
           rows.push([]);
         }
       });
-      const ws=XLSX.utils.aoa_to_sheet(rows);
+      const ws=XLSX.utils.ao_to_sheet ? XLSX.utils.ao_to_sheet(rows) : XLSX.utils.aoa_to_sheet(rows);
       ws["!cols"]=rows.reduce((acc,row)=>{row.forEach((cell,i)=>{const w=cell?cell.toString().length+2:10; if(!acc[i]||acc[i].wch<w) acc[i]={wch:w}}); return acc;},[]);
       XLSX.utils.book_append_sheet(wb,ws,"Generated Content");
       XLSX.writeFile(wb,`${(filename||'Export').replace(/\s+/g,"_")}.xlsx`);
@@ -177,7 +177,6 @@
       if (!('speechSynthesis' in window)) { alert('Text-to-speech not supported in this browser.'); return; }
       const clean = (text||'').replace(/\s+/g,' ').trim();
       if (!clean) return;
-      Speech.stop();
       const voice = Speech.pickVoice(langPrefix);
       const chunks = chunkText(clean, 160);
       chunks.forEach(seg=>{
@@ -307,7 +306,7 @@
 
       toggleBtn.addEventListener('click', async ()=>{
         await Speech.ensureVoices();
-        player.toggle(); // play/pause/resume via one button
+        player.toggle(); // single Play/Pause/Resume button
       });
       stopBtn.addEventListener('click', ()=> player.stop());
     });
@@ -331,84 +330,68 @@
     let idx = 0;
     let paused = false;
     let playing = false;
-    let resumePoll = null;
+    let current = null;
 
     const refresh = ()=>{ queue = getConversationSpanishLines(tbl); };
 
-    const clearPoll = ()=>{ if (resumePoll) { clearInterval(resumePoll); resumePoll=null; } };
-
     const speakNext = ()=>{
       if (paused) return;
-      if (idx >= queue.length){ playing=false; paused=false; clearPoll(); toggleBtn.textContent='🔊 Play Conversation (ES)'; return; }
+      if (idx >= queue.length){ finish(); return; }
       const text = queue[idx];
       const voice = Speech.pickVoice('es');
-      const u = new SpeechSynthesisUtterance(text);
-      if (voice) u.voice = voice;
-      u.lang = voice ? voice.lang : 'es-MX';
-      u.rate = Speech.defaultRate;
+      current = new SpeechSynthesisUtterance(text);
+      if (voice) current.voice = voice;
+      current.lang = voice ? voice.lang : 'es-MX';
+      current.rate = Speech.defaultRate;
 
-      u.onend = ()=>{
-        if (paused) return;
+      current.onend = ()=>{
+        if (paused) return; // user paused during utterance; wait for resume
         idx++;
         if (playing) speakNext();
       };
-      u.onerror = ()=>{
+      current.onerror = ()=>{
         idx++;
         if (playing && !paused) speakNext();
       };
 
-      window.speechSynthesis.speak(u);
+      window.speechSynthesis.speak(current);
     };
 
-    const robustResume = ()=>{
-      try { window.speechSynthesis.resume(); } catch(e){}
-      let waited = 0;
-      clearPoll();
-      resumePoll = setInterval(()=>{
-        waited += 100;
-        const synth = window.speechSynthesis;
-        if ((synth && !synth.paused && synth.speaking) || waited >= 2000){
-          clearPoll();
-          if (!(synth && synth.speaking)){
-            speakNext();
-          }
-        }
-      }, 100);
+    const finish = ()=>{
+      playing=false; paused=false; current=null; idx=0;
+      toggleBtn.textContent='🔊 Play Conversation (ES)';
     };
 
     return {
       toggle(){
         refresh();
         const synth = window.speechSynthesis;
-        // If currently playing & not paused -> PAUSE
+
+        // If playing and not paused -> PAUSE
         if (playing && synth && synth.speaking && !synth.paused){
           try { synth.pause(); } catch(e){}
           paused = true;
           toggleBtn.textContent = '▶️ Resume Conversation (ES)';
           return;
         }
+
         // If paused -> RESUME
         if (paused){
           paused = false;
+          try { synth.resume(); } catch(e){}
           toggleBtn.textContent = '⏸️ Pause Conversation (ES)';
-          robustResume();
           return;
         }
-        // Else start fresh -> PLAY
-        Speech.stop();
-        idx = 0;
-        paused = false;
-        playing = true;
+
+        // Start fresh -> PLAY
+        Speech.stop(); // clear any previous queue
+        idx = 0; paused = false; playing = true; current = null;
         toggleBtn.textContent = '⏸️ Pause Conversation (ES)';
         speakNext();
       },
       stop(){
         Speech.stop();
-        paused = false;
-        playing = false;
-        idx = 0;
-        clearPoll();
-        toggleBtn.textContent = '🔊 Play Conversation (ES)';
+        finish();
       }
     };
   }
@@ -512,7 +495,7 @@
     <h2>Nouns / Sustantivos</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- MUST be populated --></tbody>
+      <tbody></tbody>
     </table>
   </div>
 
@@ -520,7 +503,7 @@
     <h2>Verbs / Verbos</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- MUST be populated --></tbody>
+      <tbody></tbody>
     </table>
   </div>
 
@@ -528,7 +511,7 @@
     <h2>Descriptive Words / Palabras descriptivas</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- MUST be populated --></tbody>
+      <tbody></tbody>
     </table>
   </div>
 
@@ -536,7 +519,7 @@
     <h2>Common Phrases / Frases comunes</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- MUST be populated --></tbody>
+      <tbody></tbody>
     </table>
   </div>
 
@@ -544,7 +527,7 @@
     <h2>Common Questions / Preguntas comunes</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- MUST be populated --></tbody>
+      <tbody></tbody>
     </table>
   </div>
 </div></body></html>`;
@@ -556,7 +539,7 @@
   })();
 
   /* =========================
-     CONVERSATION (updated prompt for strict compliance)
+     CONVERSATION (STRICT compliance)
      ========================= */
   (function setupConvo(){
     const convoUI=`
@@ -603,7 +586,8 @@
 
       const sentMin = Math.max(1, Number($('c-sentMin').value)||1);
       const sentMax = Math.max(sentMin, Number($('c-sentMax').value)||sentMin);
-      const fibCount = Math.max(8, Math.min(20, Math.round(Number($('c-turns').value) * 0.8)));
+      const turns   = Math.max(4, Number($('c-turns').value)||10);
+      const fibCount = Math.max(8, Math.min(20, Math.round(turns * 0.8)));
 
       const prompt =
 `<!DOCTYPE html>
@@ -647,13 +631,13 @@
       : '<strong>Spanish-only:</strong> English column omitted.'}
   </div>
 
-  <!-- PARAMETERS (the output MUST match these exactly)
+  <!-- PARAMETERS
     topic="${$('c-topic').value}"
     level=${$('c-level').value}
-    vocab_mode=${$('c-vocab').value.trim() ? 'STRICT_FROM_TEACHER_LIST' : 'LEVEL_APPROPRIATE_IF_BLANK'}
+    teacher_vocab_provided=${Boolean($('c-vocab').value.trim())}
     num_conversations=${$('c-numConvos').value}
     num_speakers=${$('c-numSpeakers').value}
-    approx_turns=${$('c-turns').value}
+    approx_turns=${turns}
     sentences_per_turn_min=${sentMin}
     sentences_per_turn_max=${sentMax}
     tone="${$('c-tone').value}"
@@ -666,16 +650,24 @@
     spanish_vocab_min_per_conversation=10
   -->
 
-  <!-- HARD RULES
-    • Use real first names instead of A/B; match the selected country/region when possible.
-    • No blanks in the conversations. English column has NO blanks; instead, bold the English target word in <span class="en">blue</span>.
-    • Spanish lines may include blanks ONLY in the Practice section, formatted as: (ENGLISH WORD) ________.
-    • If include_english_column=false, output only the Spanish column everywhere.
-    • Respect grammar scope of the selected level fully.
-    • If a teacher vocabulary list is provided, USE ONLY those words (plus glue words).
-    • Each conversation must contain at least 10 distinct Spanish vocabulary items highlighted in <span class="es">red</span>.
-    • Sentences per turn must be within the min–max range above, on average, for each speaker.
-    • Fill-in-the-Blank section is included only when add_fib=true; Answer Key only when show_fib_key=true; Vocab Used only when show_vocab_list=true.
+  <!-- COMPLIANCE CONTRACT (the model MUST satisfy these before returning)
+    1) Replace A/B with real first names appropriate to the selected country/region.
+    2) For every turn, ensure the number of sentences is BETWEEN ${sentMin} and ${sentMax} inclusive
+       (count sentences by ., ! or ?). If out of range, split/merge sentences to comply.
+    3) If include_english_column=true: output two columns (EN | ES); English has NO blanks.
+       Bold the English target vocabulary in <span class="en">blue</span>.
+    4) Conversations contain NO blanks. Blanks only appear in PRACTICE as: (ENGLISH WORD) ________ .
+    5) Per conversation: include ≥10 DISTINCT Spanish vocabulary items in <span class="es">red</span>.
+    6) If a teacher vocabulary list is provided, use ONLY those words (plus glue words).
+    7) Respect grammar for the selected level strictly.
+    8) Do not leave any <tbody> empty; fill all required sections.
+  -->
+
+  <!-- SELF-AUDIT CHECKLIST (perform internally, do NOT render any report)
+    • Turn-by-turn sentence counts are all within ${sentMin}-${sentMax}.
+    • Spanish vocab ≥10 distinct items highlighted red in each conversation.
+    • Columns align with include_english_column.
+    • Practice formatting uses (ENGLISH WORD) ________ in Spanish lines only.
   -->
 
   ${Array.from({length: Number($('c-numConvos').value)}).map((_,i)=>`
@@ -687,7 +679,7 @@
           ? '<tr><th>English</th><th lang="es">Español</th></tr>'
           : '<tr><th lang="es">Español</th></tr>'}
       </thead>
-      <tbody><!-- Populate ~${$('c-turns').value} turns across ${$('c-numSpeakers').value} named speakers; ${sentMin}–${sentMax} sentences per turn. --></tbody>
+      <tbody></tbody>
     </table>
   </div>`).join('')}
 
@@ -700,7 +692,7 @@
           ? '<tr><th>(EN — NO BLANKS; target word in <span class="en">blue</span>)</th><th lang="es">(ES — (ENGLISH WORD) ________ )</th></tr>'
           : '<tr><th lang="es">(ES — (ENGLISH WORD) ________ )</th></tr>'}
       </thead>
-      <tbody><!-- Create ${Math.max(8, Math.min(20, Math.round(Number($('c-turns').value) * 0.8)))} numbered items; Spanish line has blank after the English cue in parentheses. --></tbody>
+      <tbody></tbody>
     </table>
   </div>` : ''}
 
@@ -709,7 +701,7 @@
     <h2>Vocabulary Used</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- List key vocabulary (EN | ES). --></tbody>
+      <tbody></tbody>
     </table>
   </div>` : ''}
 
@@ -718,7 +710,7 @@
     <h2>Answer Key</h2>
     <table class="tbl">
       <thead><tr><th>#</th><th>Answer</th></tr></thead>
-      <tbody><!-- Numbered answers matching FIB items. --></tbody>
+      <tbody></tbody>
     </table>
   </div>` : ''}
 
