@@ -314,7 +314,7 @@
   }
 
   /* =========================
-     Play / Pause / Stop buttons for each Conversation section
+     Robust Play / Pause / Resume / Stop per Conversation
      ========================= */
   function addPlayAllConversationButtons(root){
     const sections = Array.from(root.querySelectorAll('.section'));
@@ -323,9 +323,7 @@
       const tbl = sec.querySelector('table');
       if (!h2 || !tbl) return;
       if (!/conversation\s+\d+/i.test(h2.textContent||'')) return;
-
-      // Avoid duplicates
-      if (sec.querySelector('.tts-btn-group')) return;
+      if (sec.querySelector('.tts-btn-group')) return; // avoid duplicates
 
       const group = document.createElement('div');
       group.className = 'tts-btn-group';
@@ -350,52 +348,122 @@
       group.appendChild(stopBtn);
       sec.insertBefore(group, tbl);
 
-      // Helpers
-      const getConversationSpanish = ()=>{
-        const headerLangs = mapHeaderToLang(Array.from(tbl.querySelectorAll('thead th')));
-        let esIdx = headerLangs.indexOf('es');
-        if (esIdx < 0) esIdx = 0; // fallback
-        const lines = [];
-        tbl.querySelectorAll('tbody tr').forEach(tr=>{
-          if (tr.querySelector('.subcategory, .subhead, .cathead, .gap')) return; // skip labels
-          const tds = tr.querySelectorAll('td');
-          if (tds[esIdx]) lines.push(getCellReadableText(tds[esIdx]));
-        });
-        return lines.join(' ');
-      };
+      // Build a dedicated player for this conversation table
+      const player = createConversationPlayer(tbl, pauseBtn);
 
       playBtn.addEventListener('click', async ()=>{
         await Speech.ensureVoices();
-        // If paused, resume; otherwise start from the top
-        if ('speechSynthesis' in window && window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-        } else {
-          const full = getConversationSpanish();
-          Speech.speak(full, 'es', Speech.defaultRate);
-        }
+        player.play();
       });
 
       pauseBtn.addEventListener('click', ()=>{
-        if (!('speechSynthesis' in window)) return;
-        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-          window.speechSynthesis.pause();
-          pauseBtn.textContent = '▶️ Resume';
-        } else if (window.speechSynthesis.paused) {
-          window.speechSynthesis.resume();
-          pauseBtn.textContent = '⏸️ Pause';
-        }
+        player.pauseResume();
       });
 
       stopBtn.addEventListener('click', ()=>{
-        Speech.stop();
-        // Reset pause button label
-        pauseBtn.textContent = '⏸️ Pause';
+        player.stop();
       });
     });
   }
 
+  function getConversationSpanishLines(tbl){
+    const headerLangs = mapHeaderToLang(Array.from(tbl.querySelectorAll('thead th')));
+    let esIdx = headerLangs.indexOf('es');
+    if (esIdx < 0) esIdx = headerLangs.length === 1 ? 0 : 1; // fallback
+    const lines = [];
+    tbl.querySelectorAll('tbody tr').forEach(tr=>{
+      if (tr.querySelector('.subcategory, .subhead, .cathead, .gap')) return; // skip labels
+      const tds = tr.querySelectorAll('td');
+      if (tds[esIdx]) lines.push(getCellReadableText(tds[esIdx]));
+    });
+    return lines.filter(Boolean);
+  }
+
+  function createConversationPlayer(tbl, pauseBtn){
+    let queue = getConversationSpanishLines(tbl);
+    let idx = 0;
+    let paused = false;
+    let playing = false;
+    let currentUtter = null;
+
+    // Refresh queue if table content changed (optional)
+    const refresh = ()=>{ queue = getConversationSpanishLines(tbl); };
+
+    const speakNext = ()=>{
+      if (paused) return;
+      if (idx >= queue.length){ playing=false; paused=false; currentUtter=null; pauseBtn.textContent='⏸️ Pause'; return; }
+      const text = queue[idx];
+      const voice = Speech.pickVoice('es');
+      const u = new SpeechSynthesisUtterance(text);
+      currentUtter = u;
+      if (voice) u.voice = voice;
+      u.lang = voice ? voice.lang : 'es-MX';
+      u.rate = Speech.defaultRate;
+
+      u.onend = ()=>{
+        if (paused) return;
+        idx++;
+        if (playing) speakNext();
+      };
+      u.onerror = ()=>{ idx++; if (playing && !paused) speakNext(); };
+
+      window.speechSynthesis.speak(u);
+    };
+
+    return {
+      play(){
+        refresh();
+        if (paused){
+          paused = false;
+          pauseBtn.textContent = '⏸️ Pause';
+          // Try native resume; if nothing is speaking, continue to next segment
+          if ('speechSynthesis' in window){
+            window.speechSynthesis.resume();
+            setTimeout(()=>{
+              if (!window.speechSynthesis.speaking) speakNext();
+            }, 50);
+          } else {
+            speakNext();
+          }
+          return;
+        }
+        // Start from top
+        Speech.stop();
+        idx = 0;
+        paused = false;
+        playing = true;
+        pauseBtn.textContent = '⏸️ Pause';
+        speakNext();
+      },
+      pauseResume(){
+        if (!('speechSynthesis' in window)) return;
+        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused){
+          window.speechSynthesis.pause();
+          paused = true;
+          pauseBtn.textContent = '▶️ Resume';
+        } else {
+          paused = false;
+          pauseBtn.textContent = '⏸️ Pause';
+          window.speechSynthesis.resume();
+          // If nothing is currently speaking (some engines stop fully), continue queue
+          setTimeout(()=>{
+            if (!window.speechSynthesis.speaking && playing) speakNext();
+          }, 50);
+        }
+      },
+      stop(){
+        Speech.stop();
+        paused = false;
+        playing = false;
+        idx = 0;
+        currentUtter = null;
+        pauseBtn.textContent = '⏸️ Pause';
+      }
+    };
+  }
+
   /* =========================
-     VOCABULARY (your last working version + your later additions)
+     VOCABULARY (working base + options)
      ========================= */
   (function setupVocab(){
     const vocabUI=`
@@ -552,7 +620,7 @@
   })();
 
   /* =========================
-     CONVERSATION (with Play/Pause/Stop UI)
+     CONVERSATION (with Play/Pause/Resume/Stop UI)
      ========================= */
   (function setupConvo(){
     const convoUI=`
@@ -661,6 +729,7 @@
       • Use random person names instead of A/B labels (e.g., “Lucía: …”, “Diego: …”).
       • Bold/blue (.en) for English vocabulary words; bold/red (.es) for Spanish vocabulary words.
       • Honor the selected level’s grammar scope exactly.
+      • EACH CONVERSATION MUST CONTAIN AT LEAST <strong>10 DISTINCT</strong> SPANISH VOCABULARY HEADWORDS wrapped in <span class="es">…</span> within the dialogue (repeats do NOT count toward the minimum).
 
     FILL-IN-THE-BLANK RULES (VERY IMPORTANT):
       • Number of items: ${fibCount}.
@@ -686,7 +755,7 @@
           ? '<tr><th>English</th><th lang="es">Español</th></tr>'
           : '<tr><th lang="es">Español</th></tr>'}
       </thead>
-      <tbody><!-- Populate with ~${$('c-turns').value} turns; each turn ${sentMin}–${sentMax} sentences; use named speakers, not A/B. --></tbody>
+      <tbody><!-- Populate with ~${$('c-turns').value} turns; each turn ${sentMin}–${sentMax} sentences; use named speakers, not A/B. Ensure ≥10 distinct <span class="es">…</span> headwords. --></tbody>
     </table>
   </div>`).join('')}
 
