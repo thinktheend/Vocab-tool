@@ -127,6 +127,7 @@
 
   /* =========================
      Web Speech API helpers
+     (SPANISH VOICE UPGRADED)
      ========================= */
   const Speech = {
     voices: [],
@@ -145,17 +146,62 @@
         else window.speechSynthesis.onvoiceschanged = setVoices;
       });
     },
+    /* Prefer clearer, “Natural/Online” Google/Microsoft Spanish voices, then best regional match.
+       Works across Chrome/Edge/Safari with graceful fallback. */
     pickVoice(langPrefix) {
       if (!Speech.ready) return null;
+      const voices = Speech.voices;
       const lp = (langPrefix||'en').toLowerCase();
-      const exact = Speech.voices.find(v => v.lang && v.lang.toLowerCase().startsWith(lp));
+
+      // If Spanish requested, do a ranked selection.
+      if (lp.startsWith('es')) {
+        const preferredExact = [
+          'Google español de Estados Unidos',
+          'Google español (Latinoamérica)',
+          'Google español',
+          'Microsoft Sabina Online (Natural) - Spanish (Mexico)',
+          'Microsoft Camila Online (Natural) - Spanish (Mexico)',
+          'Microsoft Dalia Online (Natural) - Spanish (Spain)',
+          'Microsoft Pablo Online (Natural) - Spanish (Spain)',
+          'Microsoft Alvaro Online (Natural) - Spanish (Spain)'
+        ].map(s=>s.toLowerCase());
+
+        const esVoices = voices.filter(v=>{
+          const name=(v.name||'').toLowerCase();
+          const lang=(v.lang||'').toLowerCase();
+          return lang.startsWith('es') || name.includes('español') || name.includes('spanish');
+        });
+
+        // Score voices by clarity hints
+        const score = (v)=>{
+          const name=(v.name||'').toLowerCase();
+          const lang=(v.lang||'').toLowerCase();
+          let s = 0;
+          if (lang.startsWith('es')) s += 50;
+          if (preferredExact.includes(name)) s += 200;             // exact match wins
+          if (name.includes('google')) s += 120;                   // Google voices are generally clear in Chrome
+          if (name.includes('microsoft')) s += 100;                // Microsoft Natural voices in Edge
+          if (name.includes('natural') || name.includes('online')) s += 20;
+          if (lang.includes('es-mx') || name.includes('mexico')) s += 12; // neutral/clear
+          if (lang.includes('es-us')) s += 10;
+          if (lang.includes('es-es') || name.includes('spain')) s += 8;
+          if (name.includes('latino')) s += 6;
+          return s;
+        };
+
+        esVoices.sort((a,b)=>score(b)-score(a));
+        if (esVoices.length) return esVoices[0];
+      }
+
+      // Non-Spanish or fallback: closest language family, then first available.
+      const exact = voices.find(v => (v.lang||'').toLowerCase().startsWith(lp));
       if (exact) return exact;
       if (lp.startsWith('es')) {
-        return Speech.voices.find(v => v.lang && v.lang.toLowerCase().startsWith('es')) ||
-               Speech.voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en')) || null;
+        const anyEs = voices.find(v => (v.lang||'').toLowerCase().startsWith('es'));
+        if (anyEs) return anyEs;
       }
-      return Speech.voices.find(v => v.lang && v.lang.toLowerCase().startsWith('en')) ||
-             Speech.voices[0] || null;
+      const anyEn = voices.find(v => (v.lang||'').toLowerCase().startsWith('en'));
+      return anyEn || voices[0] || null;
     },
     stop(){ if ('speechSynthesis' in window) window.speechSynthesis.cancel(); },
     speak(text, langPrefix='en', rate){
@@ -164,12 +210,11 @@
       if (!clean) return;
       Speech.stop();
       const voice = Speech.pickVoice(langPrefix);
-      // split into friendly chunks
       const chunks = chunkText(clean, 160);
       chunks.forEach(seg=>{
         const u = new SpeechSynthesisUtterance(seg);
         if (voice) u.voice = voice;
-        u.lang = voice ? voice.lang : (langPrefix.startsWith('es') ? 'es-ES' : 'en-US');
+        u.lang = voice ? voice.lang : (langPrefix.startsWith('es') ? 'es-MX' : 'en-US');
         u.rate = rate || Speech.defaultRate;
         window.speechSynthesis.speak(u);
       });
@@ -202,7 +247,6 @@
       const colLangMap = mapHeaderToLang(headerCells);
 
       rows.slice(hasHeader ? 1 : 0).forEach(tr=>{
-        // Skip label rows that span columns
         const labelish = tr.querySelector('.subcategory, .subhead, .cathead, .gap');
         if (labelish && labelish.getAttribute('colspan')) return;
 
@@ -262,7 +306,7 @@
   }
 
   /* =========================
-     VOCABULARY (IMPROVED)
+     VOCABULARY (as previously delivered)
      ========================= */
   (function setupVocab(){
     const vocabUI=`
@@ -335,7 +379,6 @@
     tmodeEl.addEventListener('change',updateUI); levelEl.addEventListener('change',updateUI); updateUI();
 
     function computeAllocations(target, selected){
-      // selected: array of keys among ['nouns','verbs','descriptive','phrases','questions']
       const n=selected.length;
       const base=Math.floor(target/n);
       let rem=target - base*n;
@@ -351,7 +394,6 @@
       const isCustom=(tmodeEl.value==='custom');
       const minW=isCustom?Math.max(1,Math.min(300,Number(tminEl.value)||range.min)):range.min;
       const maxW=isCustom?Math.max(minW,Math.min(300,Number(tmaxEl.value)||range.max)):range.max;
-      // Choose an exact target at upper bound for richer content, capped at 300
       const target=Math.min(300, maxW);
 
       const catsMap = {
@@ -429,7 +471,7 @@
       • Do NOT use object pronouns anywhere (English or Spanish). Avoid: me, you (object), him, her, us, them; lo/la/los/las/le/les/nos/me/te/se, etc.
     SENTENCE RULES BY CATEGORY:
       • NOUNS: Each sentence begins with “Here is …” or “It is …” as appropriate for the noun in context.
-      • VERBS: Use third person ONLY, prioritizing “He” then “It” then “They”. Use “is going to …” pattern in EN; in ES use ‘va a … / es/está/va a …’ as appropriate. Keep neutral use.
+      • VERBS: Use third person ONLY, prioritizing “He” then “It” then “They”. Use “is going to …” pattern in EN; in ES use ‘va a …’ as appropriate. Keep neutral use.
       • DESCRIPTIVE WORDS: Sentences must be present tense.
       • PHRASES: Natural everyday phrases.
       • QUESTIONS: The question rows (both EN and ES) must be bold. The answer is the very next row (not bold). Insert a blank spacer row (<tr class="gap"><td colspan="2"></td></tr>) between Q&A blocks.
