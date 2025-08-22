@@ -45,12 +45,17 @@
   .tts-line-btn[data-tts="es"] { background:#fdeaea; border-color:#f5c2c7; }
   .tts-line-btn:hover { filter:brightness(0.98); }
 
-  /* Play-all button for each conversation */
-  .tts-playall-btn {
+  /* Conversation play/pause/stop buttons */
+  .tts-btn-group { display:flex; gap:8px; align-items:center; margin:6px 0 8px 0; flex-wrap:wrap; }
+  .tts-playall-btn, .tts-pauseall-btn, .tts-stopall-btn {
     display:inline-flex; align-items:center; gap:6px;
-    padding:6px 10px; margin:6px 0 8px 0; border:1px solid #f5c2c7;
-    border-radius:999px; background:#fdeaea; cursor:pointer; font-size:12px; font-weight:700;
+    padding:6px 10px; border-radius:999px; cursor:pointer; font-size:12px; font-weight:700;
   }
+  .tts-playall-btn { border:1px solid #f5c2c7; background:#fdeaea; }
+  .tts-pauseall-btn { border:1px solid #e6e6e6; background:#f2f4f7; }
+  .tts-stopall-btn { border:1px solid #e5e7eb; background:#fff1f2; }
+  .tts-btn-group button:hover { filter:brightness(0.98); }
+
   @media (max-width: 860px){ .six, .twelve { grid-column: span 12; } .grid-2{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -90,7 +95,7 @@
       if(!resp.ok) throw new Error(json.details||json.error||"Unknown server error.");
       outputEl.innerHTML=json.content;
       statusEl.textContent="Success!";
-      // TTS: per-line buttons + play-all for conversations
+      // TTS: per-line buttons + play/pause/stop for conversations
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
       addPlayAllConversationButtons(outputEl);
@@ -309,7 +314,7 @@
   }
 
   /* =========================
-     Play-all buttons for each Conversation section
+     Play / Pause / Stop buttons for each Conversation section
      ========================= */
   function addPlayAllConversationButtons(root){
     const sections = Array.from(root.querySelectorAll('.section'));
@@ -319,37 +324,78 @@
       if (!h2 || !tbl) return;
       if (!/conversation\s+\d+/i.test(h2.textContent||'')) return;
 
-      // Insert a "Play Conversation (ES)" button above the table
-      if (sec.querySelector('.tts-playall-btn')) return;
-      const btn = document.createElement('button');
-      btn.className = 'tts-playall-btn';
-      btn.type = 'button';
-      btn.textContent = '🔊 Play Conversation (ES)';
-      sec.insertBefore(btn, tbl);
+      // Avoid duplicates
+      if (sec.querySelector('.tts-btn-group')) return;
 
-      btn.addEventListener('click', async ()=>{
-        await Speech.ensureVoices();
+      const group = document.createElement('div');
+      group.className = 'tts-btn-group';
+
+      const playBtn = document.createElement('button');
+      playBtn.className = 'tts-playall-btn';
+      playBtn.type = 'button';
+      playBtn.textContent = '🔊 Play Conversation (ES)';
+
+      const pauseBtn = document.createElement('button');
+      pauseBtn.className = 'tts-pauseall-btn';
+      pauseBtn.type = 'button';
+      pauseBtn.textContent = '⏸️ Pause';
+
+      const stopBtn = document.createElement('button');
+      stopBtn.className = 'tts-stopall-btn';
+      stopBtn.type = 'button';
+      stopBtn.textContent = '⏹️ Stop';
+
+      group.appendChild(playBtn);
+      group.appendChild(pauseBtn);
+      group.appendChild(stopBtn);
+      sec.insertBefore(group, tbl);
+
+      // Helpers
+      const getConversationSpanish = ()=>{
         const headerLangs = mapHeaderToLang(Array.from(tbl.querySelectorAll('thead th')));
-        // Choose Spanish column; if missing, fallback to first data column.
         let esIdx = headerLangs.indexOf('es');
-        if (esIdx < 0) esIdx = 0;
+        if (esIdx < 0) esIdx = 0; // fallback
         const lines = [];
         tbl.querySelectorAll('tbody tr').forEach(tr=>{
-          // skip label rows
-          if (tr.querySelector('.subcategory, .subhead, .cathead, .gap')) return;
+          if (tr.querySelector('.subcategory, .subhead, .cathead, .gap')) return; // skip labels
           const tds = tr.querySelectorAll('td');
-          if (tds[esIdx]) {
-            lines.push(getCellReadableText(tds[esIdx]));
-          }
+          if (tds[esIdx]) lines.push(getCellReadableText(tds[esIdx]));
         });
-        const full = lines.join(' ');
-        Speech.speak(full, 'es', Speech.defaultRate);
+        return lines.join(' ');
+      };
+
+      playBtn.addEventListener('click', async ()=>{
+        await Speech.ensureVoices();
+        // If paused, resume; otherwise start from the top
+        if ('speechSynthesis' in window && window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        } else {
+          const full = getConversationSpanish();
+          Speech.speak(full, 'es', Speech.defaultRate);
+        }
+      });
+
+      pauseBtn.addEventListener('click', ()=>{
+        if (!('speechSynthesis' in window)) return;
+        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+          window.speechSynthesis.pause();
+          pauseBtn.textContent = '▶️ Resume';
+        } else if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+          pauseBtn.textContent = '⏸️ Pause';
+        }
+      });
+
+      stopBtn.addEventListener('click', ()=>{
+        Speech.stop();
+        // Reset pause button label
+        pauseBtn.textContent = '⏸️ Pause';
       });
     });
   }
 
   /* =========================
-     VOCABULARY (unchanged from your working version)
+     VOCABULARY (your last working version + your later additions)
      ========================= */
   (function setupVocab(){
     const vocabUI=`
@@ -495,8 +541,6 @@
     <span class="badge">Exactly <strong>${target}</strong> unique Spanish headwords (<code>&lt;span class="es"&gt;</code>) across selected categories.</span>
   </div>
 
-  <!-- (Vocabulary prompt content unchanged from your working version; omitted here for brevity) -->
-
   ${sectionsHTML}
 
 </div></body></html>`;
@@ -508,7 +552,7 @@
   })();
 
   /* =========================
-     CONVERSATION (UPDATED per your 6 rules)
+     CONVERSATION (with Play/Pause/Stop UI)
      ========================= */
   (function setupConvo(){
     const convoUI=`
@@ -525,7 +569,6 @@
             </select>
           </div>
 
-          <!-- Removed minutes; added Sentences/Turn range -->
           <div><label>Sentences per Turn — Min</label><input id="c-sentMin" type="number" value="1" min="1" max="5"/></div>
           <div><label>Sentences per Turn — Max</label><input id="c-sentMax" type="number" value="2" min="1" max="6"/></div>
 
