@@ -45,14 +45,13 @@
   .tts-line-btn[data-tts="es"] { background:#fdeaea; border-color:#f5c2c7; }
   .tts-line-btn:hover { filter:brightness(0.98); }
 
-  /* Conversation play/pause/stop buttons */
+  /* Conversation play/pause/resume + stop buttons */
   .tts-btn-group { display:flex; gap:8px; align-items:center; margin:6px 0 8px 0; flex-wrap:wrap; }
-  .tts-playall-btn, .tts-pauseall-btn, .tts-stopall-btn {
+  .tts-toggleall-btn, .tts-stopall-btn {
     display:inline-flex; align-items:center; gap:6px;
     padding:6px 10px; border-radius:999px; cursor:pointer; font-size:12px; font-weight:700;
   }
-  .tts-playall-btn { border:1px solid #f5c2c7; background:#fdeaea; }
-  .tts-pauseall-btn { border:1px solid #e6e6e6; background:#f2f4f7; }
+  .tts-toggleall-btn { border:1px solid #f5c2c7; background:#fdeaea; }
   .tts-stopall-btn { border:1px solid #e5e7eb; background:#fff1f2; }
   .tts-btn-group button:hover { filter:brightness(0.98); }
 
@@ -276,8 +275,7 @@
   }
 
   /* =========================
-     Robust Play / Pause / Resume / Stop per Conversation
-     (FIXED: reliable resume + button toggle)
+     Play / Pause / Resume (single button) + Stop per Conversation
      ========================= */
   function addPlayAllConversationButtons(root){
     const sections = Array.from(root.querySelectorAll('.section'));
@@ -291,38 +289,27 @@
       const group = document.createElement('div');
       group.className = 'tts-btn-group';
 
-      const playBtn = document.createElement('button');
-      playBtn.className = 'tts-playall-btn';
-      playBtn.type = 'button';
-      playBtn.textContent = '🔊 Play Conversation (ES)';
-
-      const pauseBtn = document.createElement('button');
-      pauseBtn.className = 'tts-pauseall-btn';
-      pauseBtn.type = 'button';
-      pauseBtn.textContent = '⏸️ Pause';
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = 'tts-toggleall-btn';
+      toggleBtn.type = 'button';
+      toggleBtn.textContent = '🔊 Play Conversation (ES)';
 
       const stopBtn = document.createElement('button');
       stopBtn.className = 'tts-stopall-btn';
       stopBtn.type = 'button';
       stopBtn.textContent = '⏹️ Stop';
 
-      group.appendChild(playBtn);
-      group.appendChild(pauseBtn);
+      group.appendChild(toggleBtn);
       group.appendChild(stopBtn);
       sec.insertBefore(group, tbl);
 
-      const player = createConversationPlayer(tbl, pauseBtn);
+      const player = createConversationPlayer(tbl, toggleBtn);
 
-      playBtn.addEventListener('click', async ()=>{
+      toggleBtn.addEventListener('click', async ()=>{
         await Speech.ensureVoices();
-        player.play();
+        player.toggle(); // play/pause/resume via one button
       });
-      pauseBtn.addEventListener('click', ()=>{
-        player.pauseResume();
-      });
-      stopBtn.addEventListener('click', ()=>{
-        player.stop();
-      });
+      stopBtn.addEventListener('click', ()=> player.stop());
     });
   }
 
@@ -339,7 +326,7 @@
     return lines.filter(Boolean);
   }
 
-  function createConversationPlayer(tbl, pauseBtn){
+  function createConversationPlayer(tbl, toggleBtn){
     let queue = getConversationSpanishLines(tbl);
     let idx = 0;
     let paused = false;
@@ -352,7 +339,7 @@
 
     const speakNext = ()=>{
       if (paused) return;
-      if (idx >= queue.length){ playing=false; paused=false; clearPoll(); pauseBtn.textContent='⏸️ Pause'; return; }
+      if (idx >= queue.length){ playing=false; paused=false; clearPoll(); toggleBtn.textContent='🔊 Play Conversation (ES)'; return; }
       const text = queue[idx];
       const voice = Speech.pickVoice('es');
       const u = new SpeechSynthesisUtterance(text);
@@ -374,17 +361,14 @@
     };
 
     const robustResume = ()=>{
-      // Try native resume; if engine stays paused or idle, restart current index segment
       try { window.speechSynthesis.resume(); } catch(e){}
       let waited = 0;
       clearPoll();
       resumePoll = setInterval(()=>{
         waited += 100;
         const synth = window.speechSynthesis;
-        // When resume succeeds, paused becomes false OR speaking becomes true
         if ((synth && !synth.paused && synth.speaking) || waited >= 2000){
           clearPoll();
-          // If after trying we are still not speaking, continue manually from current idx
           if (!(synth && synth.speaking)){
             speakNext();
           }
@@ -393,40 +377,30 @@
     };
 
     return {
-      play(){
+      toggle(){
         refresh();
+        const synth = window.speechSynthesis;
+        // If currently playing & not paused -> PAUSE
+        if (playing && synth && synth.speaking && !synth.paused){
+          try { synth.pause(); } catch(e){}
+          paused = true;
+          toggleBtn.textContent = '▶️ Resume Conversation (ES)';
+          return;
+        }
+        // If paused -> RESUME
         if (paused){
           paused = false;
-          playing = true;
-          pauseBtn.textContent = '⏸️ Pause';
+          toggleBtn.textContent = '⏸️ Pause Conversation (ES)';
           robustResume();
           return;
         }
+        // Else start fresh -> PLAY
         Speech.stop();
         idx = 0;
         paused = false;
         playing = true;
-        pauseBtn.textContent = '⏸️ Pause';
+        toggleBtn.textContent = '⏸️ Pause Conversation (ES)';
         speakNext();
-      },
-      pauseResume(){
-        const synth = window.speechSynthesis;
-        if (!synth) return;
-
-        // If currently speaking and not paused -> PAUSE
-        if (synth.speaking && !synth.paused){
-          try { synth.pause(); } catch(e){}
-          paused = true;
-          playing = true; // keep playing state so resume continues queue
-          pauseBtn.textContent = '▶️ Resume';
-          return;
-        }
-
-        // Otherwise -> RESUME
-        paused = false;
-        playing = true;
-        pauseBtn.textContent = '⏸️ Pause';
-        robustResume();
       },
       stop(){
         Speech.stop();
@@ -434,13 +408,13 @@
         playing = false;
         idx = 0;
         clearPoll();
-        pauseBtn.textContent = '⏸️ Pause';
+        toggleBtn.textContent = '🔊 Play Conversation (ES)';
       }
     };
   }
 
   /* =========================
-     VOCABULARY (working version)
+     VOCABULARY (unchanged UI; last working)
      ========================= */
   (function setupVocab(){
     const vocabUI=`
@@ -505,11 +479,9 @@
       const isCustom=(tmodeEl.value==='custom');
       const minW=isCustom?Math.max(1,Math.min(300,Number(tminEl.value)||range.min)):range.min;
       const maxW=isCustom?Math.max(minW,Math.min(300,Number(tmaxEl.value)||range.max)):range.max;
-      const target=Math.min(300, maxW);
-
       const prompt =
 `<!DOCTYPE html>
-<!-- FCS VOCABULARY OUTPUT (TWO COLUMNS) -->
+<!-- FCS VOCABULARY OUTPUT -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Vocabulary — ${topicEl.value}</title>
 <style>
@@ -525,9 +497,7 @@
   .tbl th{background:#f5f7fb;font-weight:700}
   .tbl tr:nth-child(even) td{background:#fafafa}
   .en{color:var(--en);font-weight:700} .es{color:var(--es);font-weight:700}
-  .cathead{background:#e6f0ff;font-weight:700;text-align:left}
-  .subhead{background:#fff6e5;font-weight:700;text-align:left}
-  .gap{background:#ffffff;height:8px}
+  .subcategory{background:#eef2ff;font-weight:700;text-align:left}
   .badge{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:#f8fafc;font-size:9pt;margin:6px}
   .note{font-size:9pt;color:var(--muted)}
   @media(max-width:700px){ .tbl{font-size:9pt;width:auto} }
@@ -536,14 +506,13 @@
   <h1>Vocabulary: ${topicEl.value} — ${levelTexts[level]}</h1>
   <div class="legend">
     <span class="badge"><span class="en">English</span> / <span class="es" lang="es">Español</span></span>
-    <span class="badge">Generate exactly ${target} unique Spanish headwords (<span class="es">…</span>) total across all sections.</span>
   </div>
 
   <div class="section">
     <h2>Nouns / Sustantivos</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody></tbody>
+      <tbody><!-- MUST be populated --></tbody>
     </table>
   </div>
 
@@ -551,7 +520,7 @@
     <h2>Verbs / Verbos</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody></tbody>
+      <tbody><!-- MUST be populated --></tbody>
     </table>
   </div>
 
@@ -559,7 +528,7 @@
     <h2>Descriptive Words / Palabras descriptivas</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody></tbody>
+      <tbody><!-- MUST be populated --></tbody>
     </table>
   </div>
 
@@ -567,7 +536,7 @@
     <h2>Common Phrases / Frases comunes</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody></tbody>
+      <tbody><!-- MUST be populated --></tbody>
     </table>
   </div>
 
@@ -575,7 +544,7 @@
     <h2>Common Questions / Preguntas comunes</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody></tbody>
+      <tbody><!-- MUST be populated --></tbody>
     </table>
   </div>
 </div></body></html>`;
@@ -587,7 +556,7 @@
   })();
 
   /* =========================
-     CONVERSATION (unchanged UI)
+     CONVERSATION (updated prompt for strict compliance)
      ========================= */
   (function setupConvo(){
     const convoUI=`
@@ -632,13 +601,13 @@
     genBtn.addEventListener('click', ()=>{
       if(!$('c-topic').value.trim()){statusEl.textContent="Enter a topic.";return;}
 
-      const fibCount = Math.max(8, Math.min(20, Math.round(Number($('c-turns').value) * 0.8)));
       const sentMin = Math.max(1, Number($('c-sentMin').value)||1);
       const sentMax = Math.max(sentMin, Number($('c-sentMax').value)||sentMin);
+      const fibCount = Math.max(8, Math.min(20, Math.round(Number($('c-turns').value) * 0.8)));
 
       const prompt =
 `<!DOCTYPE html>
-<!-- FCS CONVERSATION OUTPUT (Full HTML; no commentary) -->
+<!-- FCS CONVERSATION OUTPUT (STRICT COMPLIANCE) -->
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -658,7 +627,6 @@
   .tbl tr:nth-child(even) td{background:#fafafa}
   .en{color:var(--en);font-weight:700}
   .es{color:var(--es);font-weight:700}
-  .chip{display:inline-block;background:var(--hi);border:1px solid var(--border);border-radius:999px;padding:0 8px;margin-right:6px;font-weight:700}
   .note{font-size:9pt;color:var(--muted)}
   em,i{font-style:normal}
   @media(max-width:700px){
@@ -679,7 +647,36 @@
       : '<strong>Spanish-only:</strong> English column omitted.'}
   </div>
 
-  <!-- RULES trimmed for brevity but unchanged -->
+  <!-- PARAMETERS (the output MUST match these exactly)
+    topic="${$('c-topic').value}"
+    level=${$('c-level').value}
+    vocab_mode=${$('c-vocab').value.trim() ? 'STRICT_FROM_TEACHER_LIST' : 'LEVEL_APPROPRIATE_IF_BLANK'}
+    num_conversations=${$('c-numConvos').value}
+    num_speakers=${$('c-numSpeakers').value}
+    approx_turns=${$('c-turns').value}
+    sentences_per_turn_min=${sentMin}
+    sentences_per_turn_max=${sentMax}
+    tone="${$('c-tone').value}"
+    country="${$('c-country').value}"
+    include_english_column=${$('c-includeEN').value==='yes'}
+    add_fib=${$('c-addFib').value==='yes'}
+    fib_focus="${$('c-fibFocus').value}"
+    show_fib_key=${$('c-showFIBKey').value==='yes'}
+    show_vocab_list=${$('c-showVocabList').value==='yes'}
+    spanish_vocab_min_per_conversation=10
+  -->
+
+  <!-- HARD RULES
+    • Use real first names instead of A/B; match the selected country/region when possible.
+    • No blanks in the conversations. English column has NO blanks; instead, bold the English target word in <span class="en">blue</span>.
+    • Spanish lines may include blanks ONLY in the Practice section, formatted as: (ENGLISH WORD) ________.
+    • If include_english_column=false, output only the Spanish column everywhere.
+    • Respect grammar scope of the selected level fully.
+    • If a teacher vocabulary list is provided, USE ONLY those words (plus glue words).
+    • Each conversation must contain at least 10 distinct Spanish vocabulary items highlighted in <span class="es">red</span>.
+    • Sentences per turn must be within the min–max range above, on average, for each speaker.
+    • Fill-in-the-Blank section is included only when add_fib=true; Answer Key only when show_fib_key=true; Vocab Used only when show_vocab_list=true.
+  -->
 
   ${Array.from({length: Number($('c-numConvos').value)}).map((_,i)=>`
   <div class="section">
@@ -690,37 +687,51 @@
           ? '<tr><th>English</th><th lang="es">Español</th></tr>'
           : '<tr><th lang="es">Español</th></tr>'}
       </thead>
-      <tbody></tbody>
+      <tbody><!-- Populate ~${$('c-turns').value} turns across ${$('c-numSpeakers').value} named speakers; ${sentMin}–${sentMax} sentences per turn. --></tbody>
     </table>
   </div>`).join('')}
 
+  ${$('c-addFib').value==='yes' ? `
   <div class="section">
-    <h2>Practice — Fill-in-the-Blank</h2>
+    <h2>Practice — Fill-in-the-Blank (${ $('c-fibFocus').value })</h2>
     <table class="tbl">
       <thead>
         ${$('c-includeEN').value==='yes'
           ? '<tr><th>(EN — NO BLANKS; target word in <span class="en">blue</span>)</th><th lang="es">(ES — (ENGLISH WORD) ________ )</th></tr>'
           : '<tr><th lang="es">(ES — (ENGLISH WORD) ________ )</th></tr>'}
       </thead>
-      <tbody></tbody>
+      <tbody><!-- Create ${Math.max(8, Math.min(20, Math.round(Number($('c-turns').value) * 0.8)))} numbered items; Spanish line has blank after the English cue in parentheses. --></tbody>
     </table>
-  </div>
+  </div>` : ''}
 
+  ${$('c-showVocabList').value==='yes' ? `
   <div class="section">
     <h2>Vocabulary Used</h2>
     <table class="tbl">
       <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody></tbody>
+      <tbody><!-- List key vocabulary (EN | ES). --></tbody>
     </table>
-  </div>
+  </div>` : ''}
 
+  ${$('c-showFIBKey').value==='yes' && $('c-addFib').value==='yes' ? `
   <div class="section">
     <h2>Answer Key</h2>
     <table class="tbl">
       <thead><tr><th>#</th><th>Answer</th></tr></thead>
-      <tbody></tbody>
+      <tbody><!-- Numbered answers matching FIB items. --></tbody>
     </table>
-  </div>
+  </div>` : ''}
+
+  ${$('c-vocab').value ? `
+  <div class="note" style="white-space:pre-wrap;border:1px dashed var(--border);padding:8px;border-radius:8px;margin-top:8px;">
+    Teacher Vocabulary (STRICT use):\n${$('c-vocab').value.replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+  </div>` : ''}
+
+  ${$('c-notes').value ? `
+  <div class="note" style="white-space:pre-wrap;margin-top:8px;">
+    Teacher notes:\n${$('c-notes').value.replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+  </div>` : ''}
+
 </div>
 </body>
 </html>`;
