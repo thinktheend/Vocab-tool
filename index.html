@@ -117,7 +117,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     );
   }
 
-  /* Excel export (unchanged) */
+  /* Excel export */
   function downloadAsExcel(container,statusEl,filename){
     if(!container.querySelector("table")){statusEl.textContent="No data to export.";return}
     try{
@@ -167,7 +167,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     }
   };
 
-  /* ====== Conversation audio helpers: strip names + alternate voices ====== */
+  /* Conversation audio helpers */
   const speakerVoiceMap = new Map(); // speaker -> {pitch}
   function getSpeakerFromText(t){
     const m = (t||'').trim().match(/^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-]+)\s*:\s*/);
@@ -178,12 +178,12 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   }
   function assignVoiceForSpeaker(speaker){
     if (speakerVoiceMap.has(speaker)) return speakerVoiceMap.get(speaker);
-    const assign = { pitch: speakerVoiceMap.size % 2 ? 0.95 : 1.05 }; // alt pitch if only one ES voice
+    const assign = { pitch: speakerVoiceMap.size % 2 ? 0.95 : 1.05 }; // alt pitch
     speakerVoiceMap.set(speaker, assign);
     return assign;
   }
 
-  /* Per-line TTS (strips names for conversations) */
+  /* Per-line TTS */
   function addPerLineTTS(root){
     const sections = root.querySelectorAll('.section');
     sections.forEach(section=>{
@@ -215,7 +215,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
                   e.stopPropagation();
                   await Speech.ensureVoices();
                   let raw = td.innerText || '';
-                  if (isConversation){ // strip names and alternate voices
+                  if (isConversation){
                     const speaker = getSpeakerFromText(raw) || `Speaker${speakerVoiceMap.size+1}`;
                     const assign = assignVoiceForSpeaker(speaker);
                     const clean = stripSpeakerLabel(raw);
@@ -245,7 +245,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       const ths = Array.from(table.querySelectorAll('thead th'));
       let esIdx = ths.findIndex(th=>/español|espanol/i.test(th.textContent||'')); if(esIdx<0) esIdx = ths.length-1;
 
-      // build lines
       const rows = Array.from(table.querySelectorAll('tbody tr'));
       const items = rows.map(r=>{
         const tds=Array.from(r.querySelectorAll('td'));
@@ -258,8 +257,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         return { speaker, text };
       }).filter(Boolean);
 
-      // controls
-      if (parent.querySelector('.conv-ctrls')) return; // don't duplicate
+      if (parent.querySelector('.conv-ctrls')) return;
       const ctrl = document.createElement('div');
       ctrl.className='conv-ctrls';
       const playBtn=document.createElement('button'); playBtn.className='primary'; playBtn.textContent='Play (ES)';
@@ -301,7 +299,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   }
 
   /* =========================
-     Vocabulary (unchanged besides earlier fixes)
+     Vocabulary (as before)
      ========================= */
   (function setupVocab(){
     const vocabUI =
@@ -487,7 +485,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
           };
           const problems = [];
 
-          // Required-present + forbidden-absent
           for (const key of Object.keys(want)){
             const sec = Array.from(doc.querySelectorAll('.section h2')).find(h=>nameToRegex[key].test(h.textContent||''));
             if (want[key]) {
@@ -499,7 +496,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
             }
           }
 
-          // Count distinct Spanish vocab in N/V/D
           function esWordsIn(h2regex){
             const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>h2regex.test(h.textContent||''));
             if(!h2) return [];
@@ -518,7 +514,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
           if (count < min || count > max)
             problems.push(`Spanish vocab count ${count} outside required range ${min}–${max}`);
 
-          // Full-black wrapping for phrases/questions if present
           function fullBlackOK(h2regex){
             const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>h2regex.test(h.textContent||''));
             if(!h2) return true;
@@ -553,7 +548,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   })();
 
   /* =========================
-     Conversation (FIB tightened per your rules)
+     Conversation (FIB strict)
      ========================= */
   (function setupConvo(){
     const convoUI =
@@ -727,17 +722,15 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 </body>
 </html>`;
 
-      // === Validator: UI + sentence bounds + FIB strict format ===
+      // Validator (incl. FIB strict format). **FIXED the RegExp line here**
       const validator = (html)=>{
         try{
           const doc = new DOMParser().parseFromString(html, 'text/html');
           const problems = [];
 
-          // exact num of conversations
           const convH2s = Array.from(doc.querySelectorAll('.section h2')).filter(h=>/Conversation\s+\d+/i.test(h.textContent||''));
           if (convH2s.length !== ui.numConvos) problems.push(`need exactly ${ui.numConvos} conversation sections, found ${convH2s.length}`);
 
-          // per-conversation checks
           convH2s.forEach((h2, idx)=>{
             const tbl = h2.parentElement.querySelector('table'); if(!tbl){problems.push(`conv ${idx+1}: missing table`); return;}
             const ths = Array.from(tbl.querySelectorAll('thead th')).map(th=>th.textContent.trim().toLowerCase());
@@ -746,7 +739,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
             } else {
               if (ths.length!==1 || !(ths[0].includes('español')||ths[0].includes('espanol'))) problems.push(`conv ${idx+1}: must have only Español column`);
             }
-            // sentence bounds check (ES always; EN also if present)
             const rows = Array.from(tbl.querySelectorAll('tbody tr'));
             rows.forEach((tr, ri)=>{
               const tds = Array.from(tr.querySelectorAll('td'));
@@ -769,7 +761,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
               }
             });
 
-            // distinct speakers count (pattern "Name:")
             const speakerNames = new Set(Array.from(tbl.querySelectorAll('tbody td'))
               .map(td=>(td.textContent||'').trim().match(/^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-]+)\s*:/))
               .filter(Boolean).map(m=>m[1]));
@@ -778,7 +769,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
             }
           });
 
-          // FIB strictness
           if (ui.addFIB==='yes'){
             const fibH2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/Fill\-in\-the\-Blank|Practice/i.test(h.textContent||''));
             if(!fibH2){ problems.push('missing Fill-in-the-Blank section'); }
@@ -800,18 +790,15 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
                   const en = (tds[0].textContent||'').trim();
                   const es = (tds[1].textContent||'').trim();
 
-                  // Rule 1: English cell is ONLY the vocab word/phrase (no punctuation / sentences)
                   if (!en) problems.push(`FIB row ${idx+1}: empty English cell`);
                   if (/[\.!?;:,()\[\]{}]/.test(en)) problems.push(`FIB row ${idx+1}: English cell must be only the vocab word (no punctuation)`);
-                  // avoid obvious sentence patterns
                   const enSentenceLike = /\b(and|but|because|then|when|that|which)\b/i.test(en) || /\s{2,}/.test(en);
                   if (en.split(' ').length > 6 || enSentenceLike) problems.push(`FIB row ${idx+1}: English cell must be a single word/short phrase`);
 
-                  // Rule 2: Spanish cell has "(english) ________" with the exact English text in parentheses before the blank
-                  const hintRegex = new RegExp("\\("+escapeRegExp(en)+\\")\\s*_+","i");
+                  // **FIXED** RegExp concatenation:
+                  const hintRegex = new RegExp("\\(" + escapeRegExp(en) + "\\)\\s*_+", "i");
                   if (!hintRegex.test(es)) problems.push(`FIB row ${idx+1}: Spanish must contain "(${en}) ________" with the hint immediately before the blank`);
 
-                  // ensure a blank exists
                   if (!/_{6,}/.test(es)) problems.push(`FIB row ${idx+1}: missing blank "________"`);
                 });
               }
@@ -829,7 +816,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
       addConversationPlayers(outputEl);
-      genBtn.disabled = false; // re-usable
+      genBtn.disabled = false;
     });
 
     $('c-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
