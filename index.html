@@ -299,7 +299,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   }
 
   /* =========================
-     Vocabulary (as before)
+     Vocabulary (unchanged)
      ========================= */
   (function setupVocab(){
     const vocabUI =
@@ -548,7 +548,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   })();
 
   /* =========================
-     Conversation (FIB strict)
+     Conversation (FIB English = full sentence with blue bold vocab)
      ========================= */
   (function setupConvo(){
     const convoUI =
@@ -668,11 +668,13 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     - If UI.addFIB === "yes": include a Fill-in-the-Blank section with ${fibCount} items.
       * Table headers must be EXACTLY "English" and "Español".
       * Each row has TWO cells ONLY:
-          [English]  = ONLY the English vocabulary word/phrase to be filled (no sentence, no extra words, no punctuation).
+          [English]  = A full, natural English sentence corresponding to the Spanish sentence. Do NOT include blanks.
+                       The translated target word/phrase MUST be wrapped in <span class="en">…</span> (bold blue).
           [Español]  = A full Spanish sentence where the target Spanish word is missing and replaced by "________".
-                       Immediately BEFORE the blank, include the English word in parentheses, EXACTLY matching the English cell.
+                       Immediately BEFORE the blank, include the English word (the same as inside <span class="en">…</span>) in parentheses.
                        Example: Cuando lleguemos al (airport) ________ , tomamos un taxi.
-      * Do NOT include answers, keys, bullets, numbering, spans, or extra notes inside the FIB table cells.
+      * Do NOT include answers/keys/bullets/numbering or extra notes inside the FIB table cells.
+        (Allowed markup: only <span class="en">…</span> in the English cell.)
       * If UI.showFIBKey === "yes": provide answers in the separate "Answer Key" section only.
 
     - If UI.showFIBKey === "yes": provide a numbered Answer Key (answers only).
@@ -722,15 +724,17 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 </body>
 </html>`;
 
-      // Validator (incl. FIB strict format). **FIXED the RegExp line here**
+      // Validator (includes FIB checks for new English rule)
       const validator = (html)=>{
         try{
           const doc = new DOMParser().parseFromString(html, 'text/html');
           const problems = [];
 
+          // exact num of conversations
           const convH2s = Array.from(doc.querySelectorAll('.section h2')).filter(h=>/Conversation\s+\d+/i.test(h.textContent||''));
           if (convH2s.length !== ui.numConvos) problems.push(`need exactly ${ui.numConvos} conversation sections, found ${convH2s.length}`);
 
+          // per-conversation sentence bounds etc.
           convH2s.forEach((h2, idx)=>{
             const tbl = h2.parentElement.querySelector('table'); if(!tbl){problems.push(`conv ${idx+1}: missing table`); return;}
             const ths = Array.from(tbl.querySelectorAll('thead th')).map(th=>th.textContent.trim().toLowerCase());
@@ -761,6 +765,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
               }
             });
 
+            // speaker count heuristic
             const speakerNames = new Set(Array.from(tbl.querySelectorAll('tbody td'))
               .map(td=>(td.textContent||'').trim().match(/^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-]+)\s*:/))
               .filter(Boolean).map(m=>m[1]));
@@ -769,6 +774,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
             }
           });
 
+          // FIB strictness (NEW English rule)
           if (ui.addFIB==='yes'){
             const fibH2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/Fill\-in\-the\-Blank|Practice/i.test(h.textContent||''));
             if(!fibH2){ problems.push('missing Fill-in-the-Blank section'); }
@@ -787,19 +793,31 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
                   const tds = Array.from(tr.querySelectorAll('td'));
                   if (tds.length < 2){ problems.push(`FIB row ${idx+1}: needs two cells`); return; }
 
-                  const en = (tds[0].textContent||'').trim();
-                  const es = (tds[1].textContent||'').trim();
+                  const enCell = tds[0];
+                  const esCell = tds[1];
+                  const enText = (enCell.textContent||'').trim();
+                  const esText = (esCell.textContent||'').trim();
 
-                  if (!en) problems.push(`FIB row ${idx+1}: empty English cell`);
-                  if (/[\.!?;:,()\[\]{}]/.test(en)) problems.push(`FIB row ${idx+1}: English cell must be only the vocab word (no punctuation)`);
-                  const enSentenceLike = /\b(and|but|because|then|when|that|which)\b/i.test(en) || /\s{2,}/.test(en);
-                  if (en.split(' ').length > 6 || enSentenceLike) problems.push(`FIB row ${idx+1}: English cell must be a single word/short phrase`);
+                  if (!enText) problems.push(`FIB row ${idx+1}: empty English cell`);
 
-                  // **FIXED** RegExp concatenation:
-                  const hintRegex = new RegExp("\\(" + escapeRegExp(en) + "\\)\\s*_+", "i");
-                  if (!hintRegex.test(es)) problems.push(`FIB row ${idx+1}: Spanish must contain "(${en}) ________" with the hint immediately before the blank`);
+                  // English must contain a bold-blue vocab span and NO blanks
+                  const enSpan = enCell.querySelector('span.en');
+                  if (!enSpan || !(enSpan.textContent||'').trim()){
+                    problems.push(`FIB row ${idx+1}: English must include <span class="en">target</span>`);
+                  }
+                  if (/_{2,}/.test(enText)) problems.push(`FIB row ${idx+1}: English sentence must NOT include blanks`);
 
-                  if (!/_{6,}/.test(es)) problems.push(`FIB row ${idx+1}: missing blank "________"`);
+                  // Spanish must contain "(english) ________"
+                  const hintRaw = (enSpan ? enSpan.textContent : '').trim();
+                  if (!hintRaw){
+                    // If we don't have a span, still try to validate a generic pattern
+                    if (!/\([^)]*\)\s*_+/.test(esText)) problems.push(`FIB row ${idx+1}: Spanish must contain a hint in parentheses before the blank`);
+                  } else {
+                    const hintRegex = new RegExp("\\(" + escapeRegExp(hintRaw) + "\\)\\s*_+", "i");
+                    if (!hintRegex.test(esText)) problems.push(`FIB row ${idx+1}: Spanish must contain "(${hintRaw}) ________" with the hint immediately before the blank`);
+                  }
+                  if (!/_{6,}/.test(esText)) problems.push(`FIB row ${idx+1}: missing blank "________"`);
+
                 });
               }
             }
@@ -816,7 +834,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
       addConversationPlayers(outputEl);
-      genBtn.disabled = false;
+      genBtn.disabled = false; // re-usable
     });
 
     $('c-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
