@@ -35,10 +35,10 @@
   .output-container tr:nth-child(even) td { background: #fafafa; }
   .output-container .en { color: var(--en); font-weight: bold; }
   .output-container .es { color: var(--es); font-weight: bold; }
-  /* For "full-sentence black" in Phrases & Questions */
+  /* Black full-sentence span for phrases & questions */
   .output-container .full-black { color: var(--fg); font-weight: 700; }
 
-  /* TTS buttons */
+  /* Small inline TTS buttons */
   .tts-line-btn { display:inline-flex; align-items:center; gap:4px; padding:2px 6px; margin-right:6px; border:1px solid #dbe2ef;
     border-radius:999px; background:#eef2ff; cursor:pointer; font-size:12px; line-height:1; }
   .tts-line-btn[data-tts="es"] { background:#fdeaea; border-color:#f5c2c7; }
@@ -51,16 +51,16 @@
 </head>
 <body>
 <div class="fcs-wrap">
-    <h1>FCS AI GENERATOR SUITE</h1>
-    <div class="fcs-tabs">
-        <button id="tab-vocab" class="fcs-tab-btn primary">Vocabulary</button>
-        <button id="tab-convo" class="fcs-tab-btn">Conversation</button>
-        <button id="tab-test" class="fcs-tab-btn">Test</button>
-    </div>
+  <h1>FCS AI GENERATOR SUITE</h1>
+  <div class="fcs-tabs">
+    <button id="tab-vocab" class="fcs-tab-btn primary">Vocabulary</button>
+    <button id="tab-convo" class="fcs-tab-btn">Conversation</button>
+    <button id="tab-test" class="fcs-tab-btn">Test</button>
+  </div>
 
-    <div id="gen-vocab" class="fcs-generator active"></div>
-    <div id="gen-convo" class="fcs-generator"></div>
-    <div id="gen-test" class="fcs-generator"></div>
+  <div id="gen-vocab" class="fcs-generator active"></div>
+  <div id="gen-convo" class="fcs-generator"></div>
+  <div id="gen-test" class="fcs-generator"></div>
 </div>
 
 <script>
@@ -69,13 +69,17 @@
   const $=id=>document.getElementById(id);
   const API_URL="/api/index";
 
-  // Tabs
+  /* =========================
+     Tabs
+     ========================= */
   (function initTabs(){
     const t=document.querySelectorAll(".fcs-tab-btn"), e=document.querySelectorAll(".fcs-generator");
     t.forEach(o=>{o.addEventListener("click",()=>{const n=o.id.replace("tab-","gen-");t.forEach(t=>t.classList.remove("primary")),o.classList.add("primary"),e.forEach(t=>{t.style.display=t.id===n?"block":"none"})})})
   })();
 
-  /* ========= Core fetch + multi-retry enforcement ========= */
+  /* =========================
+     Fetch + two-pass validator retry
+     ========================= */
   async function callAPI(prompt){ 
     const resp=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
     const json=await resp.json();
@@ -87,6 +91,7 @@
     button.disabled=true;
     statusEl.textContent="Generating...";
     outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
+
     let html = await callAPI(basePrompt);
     for (let attempt=0; attempt<2; attempt++){ // up to 2 retries
       const failMsg = validator ? validator(html) : "";
@@ -96,7 +101,7 @@
 
 <!-- VIOLATION NOTICE:
 ${failMsg}
-Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS class names or document structure.
+Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS class names or document structure.
 -->`;
       html = await callAPI(retryPrompt);
     }
@@ -104,7 +109,9 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
     statusEl.textContent = "Done.";
   }
 
-  /* ========= Copy ========= */
+  /* =========================
+     Robust Copy
+     ========================= */
   function copyToClipboard(container,statusEl){
     if(!container.innerHTML || container.innerText.includes("will appear here")){
       statusEl.textContent="Nothing to copy."; return;
@@ -141,48 +148,95 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
     }catch(e){console.error("Excel Error:",e); statusEl.textContent="Failed to create Excel."}
   }
 
-  /* ========= Speech ========= */
+  /* =========================
+     Web Speech API helpers (improved ES voice)
+     ========================= */
   const Speech = {
-    voices: [], ready:false, defaultRate:0.85,
-    ensureVoices(){ return new Promise(res=>{ if(!('speechSynthesis'in window)){res();return;}
-      const set=()=>{Speech.voices=window.speechSynthesis.getVoices()||[];Speech.ready=Speech.voices.length>0;res();};
-      const ex=window.speechSynthesis.getVoices(); ex&&ex.length?set():window.speechSynthesis.onvoiceschanged=set;});},
-    pickVoice(langPrefix){ if(!Speech.ready) return null;
-      const lp=(langPrefix||'en').toLowerCase();
-      const preferEs=v=>v&&v.lang&&/^es(-|$)/i.test(v.lang)&&/(mexico|spain|us|latam|standard|google|es[-_](MX|ES|US|419))/i.test(v.name||"");
-      if(lp.startsWith('es')){ return Speech.voices.find(preferEs)||Speech.voices.find(v=>/^es/i.test(v.lang))||null; }
-      if(lp.startsWith('en')){ return Speech.voices.find(v=>/^en/i.test(v.lang))||Speech.voices[0]||null; }
-      return Speech.voices[0]||null; },
-    stop(){ if('speechSynthesis'in window) window.speechSynthesis.cancel(); },
-    speak(text, lang='en', rate){ if(!('speechSynthesis'in window)){alert('Text-to-speech not supported.');return;}
-      const s=(text||'').replace(/\s+/g,' ').trim(); if(!s) return;
-      const v=this.pickVoice(lang); const u=new SpeechSynthesisUtterance(s); if(v) u.voice=v;
-      u.lang = v ? v.lang : (lang.startsWith('es')?'es-ES':'en-US'); u.rate = lang.startsWith('es')?0.8:(rate||this.defaultRate);
-      window.speechSynthesis.speak(u); }
+    voices: [],
+    ready: false,
+    defaultRate: 0.85,
+    ensureVoices() {
+      return new Promise((resolve) => {
+        if (!('speechSynthesis' in window)) { resolve(); return; }
+        const setVoices = () => {
+          Speech.voices = window.speechSynthesis.getVoices() || [];
+          Speech.ready = Speech.voices.length > 0;
+          resolve();
+        };
+        const existing = window.speechSynthesis.getVoices();
+        if (existing && existing.length) setVoices();
+        else window.speechSynthesis.onvoiceschanged = setVoices;
+      });
+    },
+    pickVoice(langPrefix) {
+      if (!Speech.ready) return null;
+      const lp = (langPrefix||'en').toLowerCase();
+      // Prefer clear Spanish teaching voices
+      const preferEs = v => v && v.lang && /^es(-|$)/i.test(v.lang) &&
+        /(mexico|spain|us|latam|standard|google|es[-_](MX|ES|US|419))/i.test(v.name||"");
+      if (lp.startsWith('es')){
+        return Speech.voices.find(preferEs) || Speech.voices.find(v=>/^es/i.test(v.lang)) || Speech.voices[0] || null;
+      }
+      if (lp.startsWith('en')){
+        return Speech.voices.find(v=>/^en/i.test(v.lang)) || Speech.voices[0] || null;
+      }
+      return Speech.voices[0] || null;
+    },
+    stop(){ if ('speechSynthesis' in window) window.speechSynthesis.cancel(); },
+    speak(text, langPrefix='en', rate){
+      if (!('speechSynthesis' in window)) { alert('Text-to-speech not supported in this browser.'); return; }
+      const clean = (text||'').replace(/\s+/g,' ').trim();
+      if (!clean) return;
+      const voice = Speech.pickVoice(langPrefix);
+      const u = new SpeechSynthesisUtterance(clean);
+      if (voice) u.voice = voice;
+      u.lang = voice ? voice.lang : (langPrefix.startsWith('es') ? 'es-ES' : 'en-US');
+      u.rate = langPrefix.toLowerCase().startsWith('es') ? 0.8 : (rate || Speech.defaultRate); // slightly slower Spanish
+      window.speechSynthesis.speak(u);
+    }
   };
 
   function addPerLineTTS(root){
     const tables = root.querySelectorAll('table');
     tables.forEach(tbl=>{
       const ths=Array.from(tbl.querySelectorAll('thead th'));
-      const map=ths.map(th=>{const t=(th.textContent||'').toLowerCase();
-        if(t.includes('english')||t.includes('(en)')) return 'en';
-        if(t.includes('español')||t.includes('espanol')||t.includes('(es)')) return 'es';
-        return '';});
+      const map=ths.map(th=>{
+        const t=(th.textContent||'').toLowerCase();
+        if (t.includes('english') || t.includes('(en)')) return 'en';
+        if (t.includes('español') || t.includes('espanol') || t.includes('(es)')) return 'es';
+        return '';
+      });
       Array.from(tbl.querySelectorAll('tbody tr')).forEach(tr=>{
         const tds=Array.from(tr.querySelectorAll('td'));
-        tds.forEach((td,i)=>{const lang=map[i]; if(lang==='en'||lang==='es'){ if(!td.querySelector('.tts-line-btn')){
-          const b=document.createElement('button'); b.type='button'; b.className='tts-line-btn'; b.setAttribute('data-tts',lang); b.textContent='🔊';
-          td.insertBefore(b, td.firstChild);
-          b.addEventListener('click', async e=>{e.stopPropagation(); await Speech.ensureVoices(); Speech.stop(); Speech.speak(td.innerText, lang);});
-        } }});
+        tds.forEach((td,i)=>{
+          const lang=map[i];
+          if (lang==='en'||lang==='es'){
+            if (!td.querySelector('.tts-line-btn')){
+              const b=document.createElement('button');
+              b.type='button';
+              b.className='tts-line-btn';
+              b.setAttribute('data-tts',lang);
+              b.textContent='🔊';
+              td.insertBefore(b, td.firstChild);
+              b.addEventListener('click', async e=>{
+                e.stopPropagation();
+                await Speech.ensureVoices();
+                Speech.stop();
+                Speech.speak(td.innerText, lang);
+              });
+            }
+          }
+        });
       });
     });
   }
 
-  /* ========= Vocabulary ========= */
+  /* =========================================================
+     VOCABULARY — UI (selection checkboxes)  +  OUTPUT LOGIC
+     ========================================================= */
   (function setupVocab(){
-    const vocabUI=
+    // ---------- UI ----------
+    const vocabUI =
       `<div class="fcs-card">
         <h2>Vocabulary Creator</h2>
         <div class="grid">
@@ -236,11 +290,12 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
       <div id="v-output" class="output-container"><p>Your list will appear here...</p></div>`;
     $('gen-vocab').innerHTML=vocabUI;
 
+    // ---------- UI wiring ----------
     const genBtn=$('v-gen'),excelBtn=$('v-excel'),copyBtn=$('v-copy'),statusEl=$('v-status'),outputEl=$('v-output'),
           levelEl=$("v-level"),tmodeEl=$("v-tmode"),tminEl=$("v-tmin"),tmaxEl=$("v-tmax"),
           presetTextEl=$("v-presetText"),topicEl=$("v-topic"),vocabIncludeEl=$("v-vocab-include");
 
-    // Multi-select section checkboxes
+    // Section checkboxes
     const allBox = $('v-sec-all');
     const childBoxes = Array.from(document.querySelectorAll('.v-sec'));
     function setChildren(checked){ childBoxes.forEach(b=>b.checked=checked); }
@@ -261,7 +316,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
       const range=presetRanges[levelEl.value];
       tminEl.disabled=!isCustom; tmaxEl.disabled=!isCustom;
       if(!isCustom){tminEl.value=range.min; tmaxEl.value=range.max;}
-      // clamp custom to 300 with user feedback
       if (isCustom){
         if (+tminEl.value > 300) tminEl.value = 300;
         if (+tmaxEl.value > 300) tmaxEl.value = 300;
@@ -270,6 +324,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
     }
     tmodeEl.addEventListener('change',updateUI); levelEl.addEventListener('change',updateUI); updateUI();
 
+    // ---------- OUTPUT generation ----------
     genBtn.addEventListener('click', async ()=>{
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
 
@@ -277,7 +332,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
       const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
             includeP = secs.includes('phrases'), includeQ = secs.includes('questions');
 
-      // word-count bounds
+      // Word-count bounds
       let minCount, maxCount;
       if (tmodeEl.value==='custom'){
         minCount = Math.max(1, Math.min(300, Number(tminEl.value) || 1));
@@ -287,7 +342,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
         minCount = r.min; maxCount = r.max;
       }
 
-      // Build rules for the model (VERY explicit)
       const rules = [
         "Two columns only: English | Español. Use full sentences.",
         "Highlight target vocabulary with <span class=\"en\"> (English) and <span class=\"es\"> (Spanish).",
@@ -296,13 +350,12 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
         "Nouns: prefer starters like “Here is …” or “It is …” when natural.",
         "Verbs: third-person only (He/She/It/They) and ALWAYS use “is/are going to + [infinitive] …”.",
         "Descriptive: present tense sentences.",
-        "Common Phrases: the entire English cell AND the entire Spanish cell must be wrapped in <span class=\"full-black\">…</span> (whole sentence black).",
-        "Common Questions: the question line bold in both languages; answer line normal; BOTH full sentences wrapped in <span class=\"full-black\">…</span> (whole sentence black). Add an empty spacer row after each Q&A.",
+        "Common Phrases: wrap the entire English cell and the entire Spanish cell in <span class=\"full-black\">…</span> so the whole sentence is black.",
+        "Common Questions: question line bold in both languages; answer line normal; BOTH full sentences wrapped in <span class=\"full-black\">…</span>; add an empty spacer row after each Q&A.",
         `Include these specific terms if provided: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.`,
         "No table may have an empty <tbody>. If a section is requested, populate it fully."
       ];
 
-      // Build the sections
       let sectionsHTML = "";
       if (includeN) sectionsHTML += `<div class="section"><h2>Nouns / Sustantivos</h2>
         <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
@@ -348,7 +401,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
   <h1>Vocabulary: ${topicEl.value} — ${levelTexts[levelEl.value]}</h1>
   <div class="legend">
     <span class="badge"><span class="en">English</span> / <span class="es" lang="es">Español</span></span>
-    <span class="badge">English in blue; Spanish in red. Phrases & Questions = full black sentences.</span>
+    <span class="badge">English in blue; Spanish in red. Phrases & Questions use full black sentences.</span>
   </div>
 
   <!-- STRICT RULES FOR THE MODEL (FOLLOW EXACTLY):
@@ -358,7 +411,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
   ${sectionsHTML}
 </div></body></html>`;
 
-      // ===== Validator with strict counting + full-black checks =====
+      // Validator: sections present + strict count + full-black checks
       const validator = (html)=>{
         try{
           const doc = new DOMParser().parseFromString(html,'text/html');
@@ -369,7 +422,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
           };
           const problems = [];
 
-          // sections exist and non-empty
           for (const key of Object.keys(want)){
             if(!want[key]) continue;
             const sec = Array.from(doc.querySelectorAll('.section h2')).find(h=>requiredTitles[key].test(h.textContent||''));
@@ -378,7 +430,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
             if(!tbody || !tbody.querySelector('tr')) problems.push(`empty section: ${key}`);
           }
 
-          // distinct <span class="es"> in N/V/D
           function esWordsIn(h2regex){
             const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>h2regex.test(h.textContent||''));
             if(!h2) return [];
@@ -391,12 +442,13 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
           if(includeD) allEs=allEs.concat(esWordsIn(/^\s*Descriptive/i));
           const count = Array.from(new Set(allEs)).length;
 
+          const presetRanges={"1":{min:33,max:55},"2":{min:60,max:85},"3":{min:90,max:120},"4":{min:120,max:180},"5":{min:160,max:240}};
           const min = (tmodeEl.value==='custom') ? Math.max(1, Math.min(300, Number(tminEl.value)||1)) : presetRanges[levelEl.value].min;
           const max = (tmodeEl.value==='custom') ? Math.max(min, Math.min(300, Number(tmaxEl.value)||min)) : presetRanges[levelEl.value].max;
 
-          if (count < min || count > max) problems.push(`Spanish vocab count ${count} outside required range ${min}–${max} (count only from Nouns/Verbs/Descriptive via <span class="es">)`);
+          if (count < min || count > max)
+            problems.push(`Spanish vocab count ${count} outside required range ${min}–${max} (count only from Nouns/Verbs/Descriptive via <span class="es">)`);
 
-          // full-black wrapper check for Phrases & Questions
           function fullBlackOK(h2regex){
             const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>h2regex.test(h.textContent||''));
             if(!h2) return true;
@@ -404,7 +456,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
             if(!rows.length) return false;
             return rows.every(tr=>{
               const tds=Array.from(tr.querySelectorAll('td'));
-              if(tds.length<2) return true; // spacer row allowed
+              if(tds.length<2) return true; // spacer rows allowed
               const [en, es] = tds;
               const enSpan = en.querySelector('span.full-black');
               const esSpan = es.querySelector('span.full-black');
@@ -418,9 +470,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
           if(includeQ && !fullBlackOK(/^\s*Common Questions/i)) problems.push('Questions section lines must be fully wrapped in <span class="full-black">…</span>');
 
           return problems.length ? problems.join('; ') : '';
-        }catch(e){
-          return '';
-        }
+        }catch(e){ return ''; }
       };
 
       await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator);
@@ -432,9 +482,11 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
     $('v-excel').addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,topicEl.value||'Vocabulary'));
   })();
 
-  /* ========= Conversation (unchanged UI & behavior) ========= */
+  /* =========================================================
+     CONVERSATION — (UI + output stub; unchanged behavior)
+     ========================================================= */
   (function setupConvo(){
-    const convoUI=
+    const convoUI =
       `<div class="fcs-card"><h2>Conversation Creator</h2>
         <div class="grid-2">
           <div class="grid-full"><label for="c-topic">Topic</label><input id="c-topic" type="text" placeholder="e.g., A funny story about a vacation"/></div>
@@ -465,7 +517,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
         <div class="actions"><button id="c-gen" class="primary">Generate</button><button id="c-excel">Excel</button><button id="c-copy">Copy</button><div id="c-status" class="status"></div></div>
       </div>
       <div id="c-output" class="output-container"><p>Your conversation appears here...</p></div>`;
-    $('gen-convo').innerHTML=convoUI;
+    $('gen-convo').innerHTML = convoUI;
 
     const countrySelect=$('c-country');
     const countries=["-no specific-","Argentina","Bolivia","Chile","Colombia","Costa Rica","Cuba","Dominican Republic","Ecuador","El Salvador","Equatorial Guinea","Guatemala","Honduras","Mexico","Nicaragua","Panama","Paraguay","Peru","Puerto Rico","Spain","Uruguay","Venezuela"];
@@ -475,14 +527,10 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
 
     genBtn.addEventListener('click', async ()=>{
       const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
-      const sentMin = Math.max(1, Number($('c-sentMin').value)||2);
-      const sentMax = Math.max(sentMin, Number($('c-sentMax').value)||4);
-      const fibCount = Math.max(8, Math.min(30, Math.round(Number($('c-turns').value) * 0.8)));
-
       const ui = {
         topic,
         level: $('c-level').value,
-        sentences_per_turn: { min: sentMin, max: sentMax },
+        sentences_per_turn: { min: Math.max(1, Number($('c-sentMin').value)||2), max: Math.max(Number($('c-sentMin').value)||2, Number($('c-sentMax').value)||4) },
         vocab: $('c-vocab').value || "(auto-generate level-appropriate list if empty)",
         numConvos: Number($('c-numConvos').value)||1,
         numSpeakers: Number($('c-numSpeakers').value)||2,
@@ -497,16 +545,16 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
         teacherNotes: $('c-notes').value||""
       };
 
-      const prompt =
-`<!DOCTYPE html>
-<!-- FCS CONVERSATION OUTPUT -->
+      const prompt = `<!DOCTYPE html>
+<!-- FCS CONVERSATION OUTPUT (Full HTML; no commentary) -->
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Conversation — ${ui.topic}</title>
 <style>
   :root{--ink:#111;--muted:#667085;--border:#e5e7eb;--panel:#ffffff;--bg:#ffffff;--en:#1a73e8;--es:#d93025;--h:#0f172a;--hi:#eef2ff}
-  *{box-sizing:border-box} body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.4;color:var(--ink);background:var(--bg);margin:0}
+  *{box-sizing:border-box}
+  body{font-family:Calibri,Arial,sans-serif;font-size:11pt;line-height:1.4;color:var(--ink);background:var(--bg);margin:0}
   .fcs-doc{max-width:980px;margin:0 auto;padding:24px}
   h1{font-size:20pt;text-align:center;color:var(--h);margin:0 0 12px 0}
   h2{font-size:13pt;color:var(--h);margin:16px 0 8px 0;text-align:center}
@@ -516,7 +564,8 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
   .tbl th,.tbl td{border:1px solid var(--border);padding:8px;vertical-align:top}
   .tbl th{background:#f5f7fb;font-weight:700}
   .tbl tr:nth-child(even) td{background:#fafafa}
-  .en{color:var(--en);font-weight:700}.es{color:var(--es);font-weight:700}
+  .en{color:var(--en);font-weight:700}
+  .es{color:var(--es);font-weight:700}
   .chip{display:inline-block;background:var(--hi);border:1px solid var(--border);border-radius:999px;padding:0 8px;margin-right:6px;font-weight:700}
   em,i{font-style:normal}
   @media(max-width:700px){ .tbl{font-size:9pt;width:auto}.tbl thead{display:none}.tbl td{display:block;width:100%}.tbl td+td{margin-top:6px} }
@@ -526,16 +575,17 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
 <div class="fcs-doc">
   <h1>Conversation: ${ui.topic} — Level ${ui.level}</h1>
   <div class="legend"><span class="en">EN vocab = blue</span> | <span class="es">ES vocab = red</span>.</div>
-  <div class="section"><h2>Conversation</h2>
-    <table class="tbl"><thead>${ui.includeEN==='yes'
-      ? '<tr><th>English</th><th lang="es">Español</th></tr>' : '<tr><th lang="es">Español</th></tr>'}</thead>
-      <tbody></tbody></table>
+  <div class="section">
+    <h2>Conversation</h2>
+    <table class="tbl">
+      <thead>${ui.includeEN==='yes' ? '<tr><th>English</th><th lang="es">Español</th></tr>' : '<tr><th lang="es">Español</th></tr>'}</thead>
+      <tbody></tbody>
+    </table>
   </div>
 </div></body></html>`;
 
-      // single pass; conversation logic unchanged
       const html = await callAPI(prompt);
-      $('c-output').innerHTML = html;
+      outputEl.innerHTML = html;
       statusEl.textContent = "Done.";
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
@@ -545,9 +595,11 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change the CSS 
     $('c-excel').addEventListener('click', ()=>downloadAsExcel(outputEl,statusEl,$('c-topic').value||'Conversation'));
   })();
 
-  /* ========= Test (unchanged) ========= */
+  /* =========================================================
+     TEST — (UI + output; unchanged)
+     ========================================================= */
   (function setupTest(){
-    const testUI=
+    const testUI =
       `<div class="fcs-card">
         <h2>Test Creator</h2>
         <div><label for="t-vocab">Vocabulary List</label><textarea id="t-vocab" rows="6" placeholder="Paste the EXACT vocabulary for the test..."></textarea></div>
