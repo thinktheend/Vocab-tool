@@ -35,7 +35,7 @@
   .output-container tr:nth-child(even) td { background: #fafafa; }
   .output-container .en { color: var(--en); font-weight: bold; }
   .output-container .es { color: var(--es); font-weight: bold; }
-  .output-container .full-black { color: var(--fg); font-weight: 700; } /* phrases + questions */
+  .output-container .full-black { color: var(--fg); font-weight: 700; }
 
   .tts-line-btn { display:inline-flex; align-items:center; gap:4px; padding:2px 6px; margin-right:6px; border:1px solid #dbe2ef;
     border-radius:999px; background:#eef2ff; cursor:pointer; font-size:12px; line-height:1; }
@@ -74,7 +74,7 @@
     t.forEach(o=>{o.addEventListener("click",()=>{const n=o.id.replace("tab-","gen-");t.forEach(t=>t.classList.remove("primary")),o.classList.add("primary"),e.forEach(t=>{t.style.display=t.id===n?"block":"none"})})})
   })();
 
-  /* Fetch + validator retry (retry count is parameterized for speed tuning) */
+  /* Fetch + validator retry */
   async function callAPI(prompt){ 
     const resp=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
     const json=await resp.json();
@@ -117,7 +117,31 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     );
   }
 
-  /* Speech helpers (with ES voice prefs) */
+  /* Excel export (unchanged) */
+  function downloadAsExcel(container,statusEl,filename){
+    if(!container.querySelector("table")){statusEl.textContent="No data to export.";return}
+    try{
+      statusEl.textContent="Creating Excel...";
+      const wb=XLSX.utils.book_new(), rows=[], title=container.querySelector("h1")?.innerText||filename;
+      rows.push([title]); rows.push([]);
+      container.querySelectorAll("h2, table").forEach(el=>{
+        if(el.tagName==="H2") rows.push([el.innerText]);
+        if(el.tagName==="TABLE"){
+          el.querySelectorAll("tr").forEach(tr=>{
+            const line=Array.from(tr.querySelectorAll("th, td")).map(td=>td.innerText); rows.push(line);
+          });
+          rows.push([]);
+        }
+      });
+      const ws=XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"]=rows.reduce((acc,row)=>{row.forEach((cell,i)=>{const w=cell?cell.toString().length+2:10; if(!acc[i]||acc[i].wch<w) acc[i]={wch:w}}); return acc;},[]);
+      XLSX.utils.book_append_sheet(wb,ws,"Generated Content");
+      XLSX.writeFile(wb,`${(filename||'Export').replace(/\s+/g,"_")}.xlsx`);
+      statusEl.textContent="Download started.";
+    }catch(e){console.error("Excel Error:",e); statusEl.textContent="Failed to create Excel."}
+  }
+
+  /* Speech helpers */
   const Speech = {
     voices: [], ready:false, defaultRate:0.85,
     ensureVoices(){ return new Promise(res=>{ if(!('speechSynthesis'in window)){res();return;}
@@ -159,7 +183,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     return assign;
   }
 
-  /* Per-line TTS (now strips speaker names for BOTH EN & ES in Conversations) */
+  /* Per-line TTS (strips names for conversations) */
   function addPerLineTTS(root){
     const sections = root.querySelectorAll('.section');
     sections.forEach(section=>{
@@ -210,7 +234,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     });
   }
 
-  /* =============== Conversation global players (Spanish column) =============== */
+  /* Conversation global players */
   function addConversationPlayers(root){
     const sections = Array.from(root.querySelectorAll('.section h2'))
       .filter(h2=>/Conversation\s+\d+/i.test(h2.textContent||''));
@@ -221,7 +245,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       const ths = Array.from(table.querySelectorAll('thead th'));
       let esIdx = ths.findIndex(th=>/español|espanol/i.test(th.textContent||'')); if(esIdx<0) esIdx = ths.length-1;
 
-      // build lines with speaker + text (strip labels for TTS)
+      // build lines
       const rows = Array.from(table.querySelectorAll('tbody tr'));
       const items = rows.map(r=>{
         const tds=Array.from(r.querySelectorAll('td'));
@@ -277,7 +301,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   }
 
   /* =========================
-     Vocabulary
+     Vocabulary (unchanged besides earlier fixes)
      ========================= */
   (function setupVocab(){
     const vocabUI =
@@ -394,7 +418,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         "Two columns only: English | Español. Use full sentences.",
         "Highlight target vocabulary with <span class=\"en\"> (English) and <span class=\"es\"> (Spanish).",
         "Alphabetize items inside each section by the English term. Use natural, everyday wording.",
-        `You MUST produce a total of DISTINCT Spanish vocabulary words BETWEEN ${minCount} and ${maxCount} IN THE FOLLOWING SECTIONS ONLY: Nouns, Verbs, Descriptive Words. Count = number of unique <span class=\"es\"> terms in those sections. Do NOT count Phrases/Questions.`,
+        `You MUST produce a total of DISTINCT Spanish vocabulary words BETWEEN ${minCount} and ${maxCount} IN Nouns, Verbs, Descriptive Words ONLY. Count = unique <span class=\"es\"> terms in those sections. Do NOT count Phrases/Questions.`,
         "Nouns: prefer starters like “Here is …” or “It is …” when natural.",
         "Verbs: third-person only (He/She/It/They) and ALWAYS use “is/are going to + [infinitive] …”.",
         "Descriptive: present tense sentences.",
@@ -453,7 +477,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   ${sectionsHTML}
 </div></body></html>`;
 
-      // validator: selected ONLY + count + full-black checks
       const validator = (html)=>{
         try{
           const doc = new DOMParser().parseFromString(html,'text/html');
@@ -519,10 +542,10 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         }catch(e){ return ''; }
       };
 
-      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, /*maxRetries=*/1); // faster
+      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, 1);
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
-      genBtn.disabled = false; // re-enable after completion
+      genBtn.disabled = false;
     });
 
     $('v-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
@@ -530,7 +553,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   })();
 
   /* =========================
-     Conversation
+     Conversation (FIB tightened per your rules)
      ========================= */
   (function setupConvo(){
     const convoUI =
@@ -551,7 +574,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
           <div><label># of Conversations</label><input id="c-numConvos" type="number" value="2" min="1"/></div>
           <div><label># of Speakers</label><input id="c-numSpeakers" type="number" value="2" min="2"/></div>
 
-          <!-- Turns + Sentences/Turn Min/Max on same row -->
           <div class="grid-full" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px;">
             <div><label>Turns (approx.)</label><input id="c-turns" type="number" value="10" min="1"/></div>
             <div><label>Sentences/Turn — Min</label><input id="c-sentMin" type="number" value="2" min="1"/></div>
@@ -647,11 +669,20 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     - Every turn contains between UI.sentences_per_turn.min and UI.sentences_per_turn.max sentences in Spanish (and English if included).
     - Topic must stay on "${ui.topic}"; tone must be "${ui.tone}" and level-appropriate for Level ${ui.level}.
     - If UI.includeEN === "yes": two columns (English | Español). If "no": only Español column.
+
     - If UI.addFIB === "yes": include a Fill-in-the-Blank section with ${fibCount} items.
       * Table headers must be EXACTLY "English" and "Español".
+      * Each row has TWO cells ONLY:
+          [English]  = ONLY the English vocabulary word/phrase to be filled (no sentence, no extra words, no punctuation).
+          [Español]  = A full Spanish sentence where the target Spanish word is missing and replaced by "________".
+                       Immediately BEFORE the blank, include the English word in parentheses, EXACTLY matching the English cell.
+                       Example: Cuando lleguemos al (airport) ________ , tomamos un taxi.
+      * Do NOT include answers, keys, bullets, numbering, spans, or extra notes inside the FIB table cells.
+      * If UI.showFIBKey === "yes": provide answers in the separate "Answer Key" section only.
+
     - If UI.showFIBKey === "yes": provide a numbered Answer Key (answers only).
     - If UI.showVocabList === "yes": include a "Vocabulary Used" table (EN|ES).
-    - SELF-CHECK BEFORE RETURNING: section counts, per-turn sentence bounds, headers text, and presence/absence of optional sections exactly follows UI.
+    - SELF-CHECK BEFORE RETURNING: section counts, per-turn sentence bounds, FIB cell formats, headers text, and presence/absence of optional sections exactly follow UI.
   -->
 
   ${Array.from({length: ui.numConvos}).map((_,i)=>`
@@ -696,7 +727,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 </body>
 </html>`;
 
-      // Validator: UI adherence + sentence bounds (ES always; EN too when present)
+      // === Validator: UI + sentence bounds + FIB strict format ===
       const validator = (html)=>{
         try{
           const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -706,6 +737,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
           const convH2s = Array.from(doc.querySelectorAll('.section h2')).filter(h=>/Conversation\s+\d+/i.test(h.textContent||''));
           if (convH2s.length !== ui.numConvos) problems.push(`need exactly ${ui.numConvos} conversation sections, found ${convH2s.length}`);
 
+          // per-conversation checks
           convH2s.forEach((h2, idx)=>{
             const tbl = h2.parentElement.querySelector('table'); if(!tbl){problems.push(`conv ${idx+1}: missing table`); return;}
             const ths = Array.from(tbl.querySelectorAll('thead th')).map(th=>th.textContent.trim().toLowerCase());
@@ -746,15 +778,46 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
             }
           });
 
-          // FIB headers textual requirement
+          // FIB strictness
           if (ui.addFIB==='yes'){
             const fibH2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/Fill\-in\-the\-Blank|Practice/i.test(h.textContent||''));
             if(!fibH2){ problems.push('missing Fill-in-the-Blank section'); }
             else{
-              const ths = Array.from(fibH2.parentElement.querySelectorAll('thead th')).map(th=>th.textContent.trim());
-              if (ths[0] !== 'English' || ths[1] !== 'Español') problems.push('FIB headers must be exactly "English" and "Español"');
+              const table = fibH2.parentElement.querySelector('table');
+              if(!table){ problems.push('FIB: missing table'); }
+              else{
+                const ths = Array.from(table.querySelectorAll('thead th')).map(th=>th.textContent.trim());
+                if (ths[0] !== 'English' || ths[1] !== 'Español') problems.push('FIB headers must be exactly "English" and "Español"');
+
+                function escapeRegExp(s){ return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+                const rows = Array.from(table.querySelectorAll('tbody tr'));
+                if (!rows.length) problems.push('FIB: empty tbody');
+                rows.forEach((tr, idx)=>{
+                  const tds = Array.from(tr.querySelectorAll('td'));
+                  if (tds.length < 2){ problems.push(`FIB row ${idx+1}: needs two cells`); return; }
+
+                  const en = (tds[0].textContent||'').trim();
+                  const es = (tds[1].textContent||'').trim();
+
+                  // Rule 1: English cell is ONLY the vocab word/phrase (no punctuation / sentences)
+                  if (!en) problems.push(`FIB row ${idx+1}: empty English cell`);
+                  if (/[\.!?;:,()\[\]{}]/.test(en)) problems.push(`FIB row ${idx+1}: English cell must be only the vocab word (no punctuation)`);
+                  // avoid obvious sentence patterns
+                  const enSentenceLike = /\b(and|but|because|then|when|that|which)\b/i.test(en) || /\s{2,}/.test(en);
+                  if (en.split(' ').length > 6 || enSentenceLike) problems.push(`FIB row ${idx+1}: English cell must be a single word/short phrase`);
+
+                  // Rule 2: Spanish cell has "(english) ________" with the exact English text in parentheses before the blank
+                  const hintRegex = new RegExp("\\("+escapeRegExp(en)+\\")\\s*_+","i");
+                  if (!hintRegex.test(es)) problems.push(`FIB row ${idx+1}: Spanish must contain "(${en}) ________" with the hint immediately before the blank`);
+
+                  // ensure a blank exists
+                  if (!/_{6,}/.test(es)) problems.push(`FIB row ${idx+1}: missing blank "________"`);
+                });
+              }
             }
           }
+
           if (ui.showVocabList==='yes' && !Array.from(doc.querySelectorAll('.section h2')).some(h=>/Vocabulary Used/i.test(h.textContent||''))) problems.push('missing Vocabulary Used section');
           if (ui.showFIBKey==='yes' && !Array.from(doc.querySelectorAll('.section h2')).some(h=>/Answer Key/i.test(h.textContent||''))) problems.push('missing Answer Key section');
 
@@ -762,11 +825,11 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         }catch(e){ return ''; }
       };
 
-      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, /*maxRetries=*/2);
+      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, 2);
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
-      addConversationPlayers(outputEl);   // restored global controls
-      genBtn.disabled = false;            // re-enable Generate
+      addConversationPlayers(outputEl);
+      genBtn.disabled = false; // re-usable
     });
 
     $('c-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
@@ -774,7 +837,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   })();
 
   /* =========================
-     TEST (unchanged)
+     Test (unchanged)
      ========================= */
   (function setupTest(){
     const testUI =
