@@ -42,6 +42,9 @@
   .tts-line-btn[data-tts="es"] { background:#fdeaea; border-color:#f5c2c7; }
   .tts-line-btn:hover { filter:brightness(0.98); }
 
+  .conv-ctrls { display:flex; gap:8px; align-items:center; margin:6px 0 10px; }
+  .conv-ctrls button { padding:6px 10px; font-size:12px; }
+
   @media (max-width: 860px){ .six, .twelve { grid-column: span 12; } .grid-2{grid-template-columns:1fr;} }
 </style>
 </head>
@@ -71,7 +74,7 @@
     t.forEach(o=>{o.addEventListener("click",()=>{const n=o.id.replace("tab-","gen-");t.forEach(t=>t.classList.remove("primary")),o.classList.add("primary"),e.forEach(t=>{t.style.display=t.id===n?"block":"none"})})})
   })();
 
-  /* Fetch + (optional) validator retry */
+  /* Fetch + validator retry (retry count is parameterized for speed tuning) */
   async function callAPI(prompt){ 
     const resp=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
     const json=await resp.json();
@@ -79,15 +82,15 @@
     return json.content;
   }
 
-  async function generateResultWithRetries(basePrompt, button, statusEl, outputEl, validator){
+  async function generateResultWithRetries(basePrompt, button, statusEl, outputEl, validator, maxRetries=2){
     button.disabled=true;
     statusEl.textContent="Generating...";
     outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
     let html = await callAPI(basePrompt);
-    for (let attempt=0; attempt<2; attempt++){
+    for (let attempt=0; attempt<maxRetries; attempt++){
       const failMsg = validator ? validator(html) : "";
       if (!failMsg) break;
-      statusEl.textContent = `Retrying to enforce constraints… (${attempt+1}/2)`;
+      statusEl.textContent = `Retrying to enforce constraints… (${attempt+1}/${maxRetries})`;
       const retryPrompt = basePrompt + `
 
 <!-- VIOLATION NOTICE:
@@ -140,9 +143,9 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     }
   };
 
-  /* Per-line TTS (conversation: alt voices + strip speaker names) */
-  const speakerVoiceMap = new Map(); // speaker -> {voiceIndex, pitch}
-  function getSpeakerFromCellText(t){
+  /* ====== Conversation audio helpers: strip names + alternate voices ====== */
+  const speakerVoiceMap = new Map(); // speaker -> {pitch}
+  function getSpeakerFromText(t){
     const m = (t||'').trim().match(/^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-]+)\s*:\s*/);
     return m ? m[1] : "";
   }
@@ -151,78 +154,130 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   }
   function assignVoiceForSpeaker(speaker){
     if (speakerVoiceMap.has(speaker)) return speakerVoiceMap.get(speaker);
-    // choose among Spanish voices; if only one, alternate pitch
-    const esVoices = (Speech.voices||[]).filter(v=>/^es(-|$)/i.test(v.lang||''));
-    let assignment = { voiceIndex: 0, pitch: 1.0 };
-    if (esVoices.length >= 2){
-      assignment.voiceIndex = speakerVoiceMap.size % esVoices.length; // rotate
-      assignment.pitch = 1.0;
-    } else {
-      // single-voice fallback: alternate pitch a bit for distinction
-      assignment.voiceIndex = 0;
-      assignment.pitch = speakerVoiceMap.size % 2 ? 0.95 : 1.05;
-    }
-    speakerVoiceMap.set(speaker, assignment);
-    return assignment;
+    const assign = { pitch: speakerVoiceMap.size % 2 ? 0.95 : 1.05 }; // alt pitch if only one ES voice
+    speakerVoiceMap.set(speaker, assign);
+    return assign;
   }
 
+  /* Per-line TTS (now strips speaker names for BOTH EN & ES in Conversations) */
   function addPerLineTTS(root){
-    const tables = root.querySelectorAll('table');
-    tables.forEach(tbl=>{
-      const ths=Array.from(tbl.querySelectorAll('thead th'));
-      const map=ths.map(th=>{
-        const t=(th.textContent||'').toLowerCase();
-        if (t.includes('english') || t.includes('(en)')) return 'en';
-        if (t.includes('español') || t.includes('espanol') || t.includes('(es)')) return 'es';
-        return '';
-      });
-      Array.from(tbl.querySelectorAll('tbody tr')).forEach(tr=>{
-        const tds=Array.from(tr.querySelectorAll('td'));
-        tds.forEach((td,i)=>{
-          const lang=map[i];
-          if (lang==='en'||lang==='es'){
-            if (!td.querySelector('.tts-line-btn')){
-              const b=document.createElement('button');
-              b.type='button';
-              b.className='tts-line-btn';
-              b.setAttribute('data-tts',lang);
-              b.textContent='🔊';
-              td.insertBefore(b, td.firstChild);
+    const sections = root.querySelectorAll('.section');
+    sections.forEach(section=>{
+      const title = section.querySelector('h2')?.textContent || '';
+      const isConversation = /Conversation\s+\d+/i.test(title);
+      const tables = section.querySelectorAll('table');
+      tables.forEach(tbl=>{
+        const ths=Array.from(tbl.querySelectorAll('thead th'));
+        const map=ths.map(th=>{
+          const t=(th.textContent||'').toLowerCase();
+          if (t.includes('english') || t.includes('(en)')) return 'en';
+          if (t.includes('español') || t.includes('espanol') || t.includes('(es)')) return 'es';
+          return '';
+        });
+        Array.from(tbl.querySelectorAll('tbody tr')).forEach(tr=>{
+          const tds=Array.from(tr.querySelectorAll('td'));
+          tds.forEach((td,i)=>{
+            const lang=map[i];
+            if (lang==='en'||lang==='es'){
+              if (!td.querySelector('.tts-line-btn')){
+                const b=document.createElement('button');
+                b.type='button';
+                b.className='tts-line-btn';
+                b.setAttribute('data-tts',lang);
+                b.textContent='🔊';
+                td.insertBefore(b, td.firstChild);
 
-              b.addEventListener('click', async e=>{
-                e.stopPropagation();
-                await Speech.ensureVoices();
-                const sectionTitle = td.closest('.section')?.querySelector('h2')?.textContent || '';
-                const isConversation = /conversation/i.test(sectionTitle);
-
-                let raw = td.innerText || '';
-                if (isConversation && lang === 'es'){
-                  const speaker = getSpeakerFromCellText(raw) || `Speaker${speakerVoiceMap.size+1}`;
-                  const clean   = stripSpeakerLabel(raw);
-                  const esVoices = (Speech.voices||[]).filter(v=>/^es(-|$)/i.test(v.lang||''));
-                  const assign = assignVoiceForSpeaker(speaker);
-                  // temporarily pick a specific ES voice by index (if exists)
-                  const v = esVoices[assign.voiceIndex];
-                  const text = clean;
-                  // Speak with chosen voice/pitch (handled inside Speech.speak)
-                  // Speech.speak ignores custom voice instance, so we simulate by setting global pickVoice order:
-                  // Instead, we pass pitch (distinct) and rely on OS voice selection + pitch
-                  Speech.stop();
-                  Speech.speak(text, 'es', { pitch: assign.pitch });
-                } else {
-                  Speech.stop();
-                  Speech.speak(raw, lang);
-                }
-              });
+                b.addEventListener('click', async e=>{
+                  e.stopPropagation();
+                  await Speech.ensureVoices();
+                  let raw = td.innerText || '';
+                  if (isConversation){ // strip names and alternate voices
+                    const speaker = getSpeakerFromText(raw) || `Speaker${speakerVoiceMap.size+1}`;
+                    const assign = assignVoiceForSpeaker(speaker);
+                    const clean = stripSpeakerLabel(raw);
+                    Speech.stop();
+                    Speech.speak(clean, lang==='es'?'es':'en', { pitch: assign.pitch });
+                  } else {
+                    Speech.stop();
+                    Speech.speak(raw, lang);
+                  }
+                });
+              }
             }
-          }
+          });
         });
       });
     });
   }
 
+  /* =============== Conversation global players (Spanish column) =============== */
+  function addConversationPlayers(root){
+    const sections = Array.from(root.querySelectorAll('.section h2'))
+      .filter(h2=>/Conversation\s+\d+/i.test(h2.textContent||''));
+    sections.forEach(h2=>{
+      const parent = h2.parentElement;
+      const table = parent.querySelector('table');
+      if(!table) return;
+      const ths = Array.from(table.querySelectorAll('thead th'));
+      let esIdx = ths.findIndex(th=>/español|espanol/i.test(th.textContent||'')); if(esIdx<0) esIdx = ths.length-1;
+
+      // build lines with speaker + text (strip labels for TTS)
+      const rows = Array.from(table.querySelectorAll('tbody tr'));
+      const items = rows.map(r=>{
+        const tds=Array.from(r.querySelectorAll('td'));
+        const cell = tds[esIdx];
+        if (!cell) return null;
+        const raw = (cell.textContent||'').trim();
+        if(!raw) return null;
+        const speaker = getSpeakerFromText(raw) || 'Narr';
+        const text = stripSpeakerLabel(raw);
+        return { speaker, text };
+      }).filter(Boolean);
+
+      // controls
+      if (parent.querySelector('.conv-ctrls')) return; // don't duplicate
+      const ctrl = document.createElement('div');
+      ctrl.className='conv-ctrls';
+      const playBtn=document.createElement('button'); playBtn.className='primary'; playBtn.textContent='Play (ES)';
+      const pauseBtn=document.createElement('button'); pauseBtn.textContent='Pause';
+      const resumeBtn=document.createElement('button'); resumeBtn.textContent='Resume';
+      const stopBtn=document.createElement('button'); stopBtn.textContent='Stop';
+      ctrl.append(playBtn,pauseBtn,resumeBtn,stopBtn);
+      parent.insertBefore(ctrl, table);
+
+      let idx=0; let state='stopped';
+      const onend = ()=>{ if(state!=='stopped'){ idx++; if(idx>=items.length){ state='stopped'; return; }
+        speakCurrent(); } };
+
+      function speakCurrent(){
+        const it = items[idx]; if(!it){ state='stopped'; return; }
+        const assign = assignVoiceForSpeaker(it.speaker);
+        Speech.stop();
+        const u = new SpeechSynthesisUtterance(it.text);
+        const v = Speech.pickVoice('es');
+        if (v) u.voice=v;
+        u.lang = v ? v.lang : 'es-ES';
+        u.rate = 0.8;
+        u.pitch = assign.pitch;
+        u.onend = onend;
+        window.speechSynthesis.speak(u);
+        state='playing';
+      }
+
+      playBtn.addEventListener('click', async ()=>{
+        await Speech.ensureVoices();
+        if(state==='stopped'){ idx=0; speakCurrent(); }
+        else if(state==='playing'){ window.speechSynthesis.pause(); state='paused'; }
+        else if(state==='paused'){ window.speechSynthesis.resume(); state='playing'; }
+      });
+      pauseBtn.addEventListener('click', ()=>{ if(state==='playing'){ window.speechSynthesis.pause(); state='paused'; }});
+      resumeBtn.addEventListener('click', ()=>{ if(state==='paused'){ window.speechSynthesis.resume(); state='playing'; }});
+      stopBtn.addEventListener('click', ()=>{ Speech.stop(); state='stopped'; idx=0; });
+    });
+  }
+
   /* =========================
-     VOCABULARY
+     Vocabulary
      ========================= */
   (function setupVocab(){
     const vocabUI =
@@ -326,7 +381,16 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         minCount = r.min; maxCount = r.max;
       }
 
+      const onlySections = [
+        includeN?'Nouns':null,
+        includeV?'Verbs':null,
+        includeD?'Descriptive Words':null,
+        includeP?'Common Phrases':null,
+        includeQ?'Common Questions':null
+      ].filter(Boolean).join(', ');
+
       const rules = [
+        `Generate ONLY these sections: ${onlySections}. Do NOT include any other section header.`,
         "Two columns only: English | Español. Use full sentences.",
         "Highlight target vocabulary with <span class=\"en\"> (English) and <span class=\"es\"> (Spanish).",
         "Alphabetize items inside each section by the English term. Use natural, everyday wording.",
@@ -376,42 +440,43 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   .tbl tr:nth-child(even) td{background:#fafafa}
   .en{color:var(--en);font-weight:700} .es{color:var(--es);font-weight:700}
   .full-black{color:var(--ink);font-weight:700}
-  .subcategory{background:#eef2ff;font-weight:700;text-align:left}
-  .badge{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:#f8fafc;font-size:9pt;margin:6px}
-  .note{font-size:9pt;color:var(--muted)}
   @media(max-width:700px){ .tbl{font-size:9pt;width:auto} }
 </style></head>
 <body><div class="fcs-doc" lang="en">
   <h1>Vocabulary: ${topicEl.value} — ${levelTexts[levelEl.value]}</h1>
-  <div class="legend">
-    <span class="badge"><span class="en">English</span> / <span class="es" lang="es">Español</span></span>
-    <span class="badge">English in blue; Spanish in red. Phrases & Questions use full black sentences.</span>
-  </div>
+  <div class="legend"><span class="en">English blue</span> | <span class="es">Spanish red</span> (phrases & questions: full black)</div>
 
-  <!-- STRICT RULES FOR THE MODEL (FOLLOW EXACTLY):
+  <!-- STRICT RULES:
     ${rules.map((r,i)=>`${i+1}) ${r}`).join('\n    ')}
   -->
 
   ${sectionsHTML}
 </div></body></html>`;
 
-      // validator (unchanged from your last version)
+      // validator: selected ONLY + count + full-black checks
       const validator = (html)=>{
         try{
           const doc = new DOMParser().parseFromString(html,'text/html');
           const want = { nouns:includeN, verbs:includeV, descriptive:includeD, phrases:includeP, questions:includeQ };
-          const requiredTitles = {
+          const nameToRegex = {
             nouns:/^\s*Nouns/i, verbs:/^\s*Verbs/i, descriptive:/^\s*Descriptive/i,
             phrases:/^\s*Common Phrases/i, questions:/^\s*Common Questions/i
           };
           const problems = [];
+
+          // Required-present + forbidden-absent
           for (const key of Object.keys(want)){
-            if(!want[key]) continue;
-            const sec = Array.from(doc.querySelectorAll('.section h2')).find(h=>requiredTitles[key].test(h.textContent||''));
-            if(!sec){ problems.push(`missing section: ${key}`); continue; }
-            const tbody = sec.parentElement.querySelector('tbody');
-            if(!tbody || !tbody.querySelector('tr')) problems.push(`empty section: ${key}`);
+            const sec = Array.from(doc.querySelectorAll('.section h2')).find(h=>nameToRegex[key].test(h.textContent||''));
+            if (want[key]) {
+              if(!sec) { problems.push(`missing required section: ${key}`); continue; }
+              const tbody = sec.parentElement.querySelector('tbody');
+              if(!tbody || !tbody.querySelector('tr')) problems.push(`empty section: ${key}`);
+            } else {
+              if (sec) problems.push(`forbidden extra section present: ${key}`);
+            }
           }
+
+          // Count distinct Spanish vocab in N/V/D
           function esWordsIn(h2regex){
             const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>h2regex.test(h.textContent||''));
             if(!h2) return [];
@@ -424,11 +489,13 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
           if(includeD) allEs=allEs.concat(esWordsIn(/^\s*Descriptive/i));
           const count = Array.from(new Set(allEs)).length;
 
+          const presetRanges={"1":{min:33,max:55},"2":{min:60,max:85},"3":{min:90,max:120},"4":{min:120,max:180},"5":{min:160,max:240}};
           const min = (tmodeEl.value==='custom') ? Math.max(1, Math.min(300, Number(tminEl.value)||1)) : presetRanges[levelEl.value].min;
           const max = (tmodeEl.value==='custom') ? Math.max(min, Math.min(300, Number(tmaxEl.value)||min)) : presetRanges[levelEl.value].max;
           if (count < min || count > max)
-            problems.push(`Spanish vocab count ${count} outside required range ${min}–${max} (count from Nouns/Verbs/Descriptive via <span class="es">)`);
+            problems.push(`Spanish vocab count ${count} outside required range ${min}–${max}`);
 
+          // Full-black wrapping for phrases/questions if present
           function fullBlackOK(h2regex){
             const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>h2regex.test(h.textContent||''));
             if(!h2) return true;
@@ -441,9 +508,8 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
               const enSpan = en.querySelector('span.full-black');
               const esSpan = es.querySelector('span.full-black');
               if(!enSpan || !esSpan) return false;
-              const enMatch = (enSpan.textContent||'').trim() === (en.textContent||'').trim();
-              const esMatch = (esSpan.textContent||'').trim() === (es.textContent||'').trim();
-              return enMatch && esMatch;
+              return (enSpan.textContent||'').trim() === (en.textContent||'').trim()
+                && (esSpan.textContent||'').trim() === (es.textContent||'').trim();
             });
           }
           if(includeP && !fullBlackOK(/^\s*Common Phrases/i)) problems.push('Phrases lines must be fully wrapped in <span class="full-black">…</span>');
@@ -453,12 +519,10 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         }catch(e){ return ''; }
       };
 
-      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator);
+      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, /*maxRetries=*/1); // faster
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
-
-      /* >>> Only for Vocabulary: re-enable the Generate button AFTER completion <<< */
-      genBtn.disabled = false;
+      genBtn.disabled = false; // re-enable after completion
     });
 
     $('v-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
@@ -466,7 +530,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   })();
 
   /* =========================
-     CONVERSATION
+     Conversation
      ========================= */
   (function setupConvo(){
     const convoUI =
@@ -487,7 +551,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
           <div><label># of Conversations</label><input id="c-numConvos" type="number" value="2" min="1"/></div>
           <div><label># of Speakers</label><input id="c-numSpeakers" type="number" value="2" min="2"/></div>
 
-          <!-- Put Turns + Sentences/Turn Min/Max on same row -->
+          <!-- Turns + Sentences/Turn Min/Max on same row -->
           <div class="grid-full" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px;">
             <div><label>Turns (approx.)</label><input id="c-turns" type="number" value="10" min="1"/></div>
             <div><label>Sentences/Turn — Min</label><input id="c-sentMin" type="number" value="2" min="1"/></div>
@@ -567,8 +631,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   .tbl tr:nth-child(even) td{background:#fafafa}
   .en{color:var(--en);font-weight:700}
   .es{color:var(--es);font-weight:700}
-  .chip{display:inline-block;background:var(--hi);border:1px solid var(--border);border-radius:999px;padding:0 8px;margin-right:6px;font-weight:700}
-  em,i{font-style:normal}
   @media(max-width:700px){ .tbl{font-size:9pt;width:auto}.tbl thead{display:none}.tbl td{display:block;width:100%}.tbl td+td{margin-top:6px} }
 </style>
 </head>
@@ -587,7 +649,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     - If UI.includeEN === "yes": two columns (English | Español). If "no": only Español column.
     - If UI.addFIB === "yes": include a Fill-in-the-Blank section with ${fibCount} items.
       * Table headers must be EXACTLY "English" and "Español".
-      * In Spanish prompts, include (ENGLISH HINT) before the blank: e.g., (restaurant) ________ .
     - If UI.showFIBKey === "yes": provide a numbered Answer Key (answers only).
     - If UI.showVocabList === "yes": include a "Vocabulary Used" table (EN|ES).
     - SELF-CHECK BEFORE RETURNING: section counts, per-turn sentence bounds, headers text, and presence/absence of optional sections exactly follows UI.
@@ -609,17 +670,13 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   ${ui.addFIB==='yes' ? `
   <div class="section">
     <h2>Practice — Fill-in-the-Blank (${ui.fibFocus})</h2>
-    <table class="tbl">
-      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody></tbody>
-    </table>
+    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
   </div>` : ''}
 
   ${ui.showVocabList==='yes' ? `
   <div class="section">
     <h2>Vocabulary Used</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody></tbody></table>
+    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
   </div>` : ''}
 
   ${ui.showFIBKey==='yes' ? `
@@ -639,17 +696,16 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 </body>
 </html>`;
 
-      // === Validator: ensure strict adherence to UI (and FIB headers) ===
+      // Validator: UI adherence + sentence bounds (ES always; EN too when present)
       const validator = (html)=>{
         try{
           const doc = new DOMParser().parseFromString(html, 'text/html');
           const problems = [];
 
-          // conversation sections count
+          // exact num of conversations
           const convH2s = Array.from(doc.querySelectorAll('.section h2')).filter(h=>/Conversation\s+\d+/i.test(h.textContent||''));
           if (convH2s.length !== ui.numConvos) problems.push(`need exactly ${ui.numConvos} conversation sections, found ${convH2s.length}`);
 
-          // per-conversation checks
           convH2s.forEach((h2, idx)=>{
             const tbl = h2.parentElement.querySelector('table'); if(!tbl){problems.push(`conv ${idx+1}: missing table`); return;}
             const ths = Array.from(tbl.querySelectorAll('thead th')).map(th=>th.textContent.trim().toLowerCase());
@@ -658,27 +714,39 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
             } else {
               if (ths.length!==1 || !(ths[0].includes('español')||ths[0].includes('espanol'))) problems.push(`conv ${idx+1}: must have only Español column`);
             }
-            // sentence bounds in Spanish cells
+            // sentence bounds check (ES always; EN also if present)
             const rows = Array.from(tbl.querySelectorAll('tbody tr'));
             rows.forEach((tr, ri)=>{
               const tds = Array.from(tr.querySelectorAll('td'));
               const esIdx = (ui.includeEN==='yes') ? 1 : 0;
-              const cell = tds[esIdx]; if(!cell) return;
-              const text = (cell.textContent||'').trim();
-              if(!text) return;
-              const sCount = (text.replace(/\s+/g,' ').match(/[^\.!?]+[\.!?]+/g)||[text]).length;
-              if (sCount < ui.sentences_per_turn.min || sCount > ui.sentences_per_turn.max){
-                problems.push(`conv ${idx+1} row ${ri+1}: ${sCount} sentences (must be ${ui.sentences_per_turn.min}-${ui.sentences_per_turn.max})`);
+              const esText = (tds[esIdx]?.textContent||'').trim();
+              if (esText){
+                const sCount = (esText.replace(/\s+/g,' ').match(/[^\.!?]+[\.!?]+/g)||[esText]).length;
+                if (sCount < ui.sentences_per_turn.min || sCount > ui.sentences_per_turn.max){
+                  problems.push(`conv ${idx+1} row ${ri+1} (ES): ${sCount} sentences (must be ${ui.sentences_per_turn.min}-${ui.sentences_per_turn.max})`);
+                }
+              }
+              if (ui.includeEN==='yes'){
+                const enText = (tds[0]?.textContent||'').trim();
+                if (enText){
+                  const sCountEn = (enText.replace(/\s+/g,' ').match(/[^\.!?]+[\.!?]+/g)||[enText]).length;
+                  if (sCountEn < ui.sentences_per_turn.min || sCountEn > ui.sentences_per_turn.max){
+                    problems.push(`conv ${idx+1} row ${ri+1} (EN): ${sCountEn} sentences (must be ${ui.sentences_per_turn.min}-${ui.sentences_per_turn.max})`);
+                  }
+                }
               }
             });
-            // speaker count (distinct "Name:" patterns)
-            const speakerNames = new Set(Array.from(tbl.querySelectorAll('tbody td')).map(td=>(td.textContent||'').trim().match(/^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-]+)\s*:/)).filter(Boolean).map(m=>m[1]));
+
+            // distinct speakers count (pattern "Name:")
+            const speakerNames = new Set(Array.from(tbl.querySelectorAll('tbody td'))
+              .map(td=>(td.textContent||'').trim().match(/^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-]+)\s*:/))
+              .filter(Boolean).map(m=>m[1]));
             if (speakerNames.size && speakerNames.size !== ui.numSpeakers){
               problems.push(`conv ${idx+1}: expected ${ui.numSpeakers} distinct speakers, found ${speakerNames.size}`);
             }
           });
 
-          // FIB section headers
+          // FIB headers textual requirement
           if (ui.addFIB==='yes'){
             const fibH2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/Fill\-in\-the\-Blank|Practice/i.test(h.textContent||''));
             if(!fibH2){ problems.push('missing Fill-in-the-Blank section'); }
@@ -687,8 +755,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
               if (ths[0] !== 'English' || ths[1] !== 'Español') problems.push('FIB headers must be exactly "English" and "Español"');
             }
           }
-
-          // optional sections presence
           if (ui.showVocabList==='yes' && !Array.from(doc.querySelectorAll('.section h2')).some(h=>/Vocabulary Used/i.test(h.textContent||''))) problems.push('missing Vocabulary Used section');
           if (ui.showFIBKey==='yes' && !Array.from(doc.querySelectorAll('.section h2')).some(h=>/Answer Key/i.test(h.textContent||''))) problems.push('missing Answer Key section');
 
@@ -696,9 +762,11 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         }catch(e){ return ''; }
       };
 
-      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator);
+      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, /*maxRetries=*/2);
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
+      addConversationPlayers(outputEl);   // restored global controls
+      genBtn.disabled = false;            // re-enable Generate
     });
 
     $('c-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
