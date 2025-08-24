@@ -36,7 +36,7 @@
   .output-container .en { color: var(--en); font-weight: bold; } 
   .output-container .es { color: var(--es); font-weight: bold; }
 
-  /* Small inline TTS buttons inserted into each EN/ES cell */
+  /* Small inline TTS buttons for each EN/ES cell */
   .tts-line-btn { display:inline-flex; align-items:center; gap:4px; padding:2px 6px; margin-right:6px; border:1px solid #dbe2ef;
     border-radius:999px; background:#eef2ff; cursor:pointer; font-size:12px; line-height:1; }
   .tts-line-btn[data-tts="es"] { background:#fdeaea; border-color:#f5c2c7; }
@@ -50,15 +50,28 @@
 <body>
 <div class="fcs-wrap">
     <h1>FCS AI GENERATOR SUITE</h1>
+
+    <!-- ===== Global Tabs ===== -->
     <div class="fcs-tabs">
         <button id="tab-vocab" class="fcs-tab-btn primary">Vocabulary</button>
         <button id="tab-convo" class="fcs-tab-btn">Conversation</button>
         <button id="tab-test" class="fcs-tab-btn">Test</button>
     </div>
 
+    <!-- ====== VOCABULARY: UI ====== -->
     <div id="gen-vocab" class="fcs-generator active"></div>
+    <!-- ====== VOCABULARY: OUTPUT (injected) ====== -->
+    <div id="v-output" class="output-container"><p>Your list will appear here...</p></div>
+
+    <!-- ====== CONVERSATION: UI ====== -->
     <div id="gen-convo" class="fcs-generator"></div>
+    <!-- ====== CONVERSATION: OUTPUT (unchanged) ====== -->
+    <div id="c-output" class="output-container" style="display:none"><p>Your conversation appears here...</p></div>
+
+    <!-- ====== TEST: UI ====== -->
     <div id="gen-test" class="fcs-generator"></div>
+    <!-- ====== TEST: OUTPUT (unchanged) ====== -->
+    <div id="t-output" class="output-container" style="display:none"><p>Your test will appear here...</p></div>
 </div>
 
 <script>
@@ -69,8 +82,21 @@
 
   // Tabs
   (function initTabs(){
-    const t=document.querySelectorAll(".fcs-tab-btn"), e=document.querySelectorAll(".fcs-generator");
-    t.forEach(o=>{o.addEventListener("click",()=>{const n=o.id.replace("tab-","gen-");t.forEach(t=>t.classList.remove("primary")),o.classList.add("primary"),e.forEach(t=>{t.style.display=t.id===n?"block":"none"})})})
+    const t=document.querySelectorAll(".fcs-tab-btn");
+    const blocks={
+      vocab:["gen-vocab","v-output"],
+      convo:["gen-convo","c-output"],
+      test:["gen-test","t-output"]
+    };
+    t.forEach(o=>{
+      o.addEventListener("click",()=>{
+        const which=o.id.replace("tab-","");
+        t.forEach(b=>b.classList.remove("primary"));
+        o.classList.add("primary");
+        document.querySelectorAll(".fcs-generator, .output-container").forEach(el=>el.style.display="none");
+        blocks[which].forEach(id=>$(id).style.display="block");
+      })
+    });
   })();
 
   /* ===== Core fetch + (optional) compliance-retry ===== */
@@ -82,12 +108,11 @@
   }
 
   async function generateResult(prompt,button,statusEl,outputEl,{retryIfBad=null}={}){
-    button.disabled=!0;
+    button.disabled=true;
     statusEl.textContent="Generating...";
     outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
     try{
       let html=await callAPI(prompt);
-      // optional compliance check + 1 retry (conversation only)
       if(typeof retryIfBad === "function"){
         const failMsg = retryIfBad(html);
         if(failMsg){
@@ -97,26 +122,49 @@
         }
       }
       outputEl.innerHTML=html;
+      // Ensure phrases/questions are fully colored even if the model forgets
+      forcePhraseQuestionColoring(outputEl);
       statusEl.textContent="Done.";
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
-      addConversationPlayers(outputEl); // common Play/Pause/Resume/Stop — conversation only
+      addConversationPlayers(outputEl);
     }catch(err){
       console.error("Error:",err);
       outputEl.innerHTML=`<p style="color:red;"><strong>Error:</strong> ${err.message}</p>`;
       statusEl.textContent="Error.";
     }finally{
-      button.disabled=!1;
+      button.disabled=false;
     }
   }
 
+  /* ===== Copy helper (fixed: with secure + fallback) ===== */
   function copyToClipboard(container,statusEl){
-    if(!container.innerHTML || container.innerText.includes("will appear here")){
-      statusEl.textContent="Nothing to copy."; return;
+    const text=(container.innerText||"").trim();
+    if(!text){ statusEl.textContent="Nothing to copy."; return; }
+
+    function legacyCopy(txt){
+      try{
+        const ta=document.createElement("textarea");
+        ta.value=txt;
+        ta.style.position="fixed"; ta.style.opacity="0"; ta.style.left="-9999px";
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        const ok=document.execCommand("copy");
+        document.body.removeChild(ta);
+        return ok;
+      }catch{ return false; }
     }
-    navigator.clipboard.writeText(container.innerText).then(()=>statusEl.textContent="Copied!",()=>statusEl.textContent="Copy failed.");
+
+    if(navigator.clipboard && window.isSecureContext){
+      navigator.clipboard.writeText(text)
+        .then(()=>statusEl.textContent="Copied!")
+        .catch(()=>{ legacyCopy(text) ? statusEl.textContent="Copied!" : statusEl.textContent="Copy failed."; });
+    }else{
+      legacyCopy(text) ? statusEl.textContent="Copied!" : statusEl.textContent="Copy failed.";
+    }
   }
 
+  /* ===== Excel download (unchanged) ===== */
   function downloadAsExcel(container,statusEl,filename){
     if(!container.querySelector("table")){statusEl.textContent="No data to export.";return}
     try{
@@ -146,7 +194,8 @@
   const Speech = {
     voices: [],
     ready: false,
-    defaultRate: 0.85, // slowish
+    defaultRate: 0.95,
+    defaultRateES: 0.90, // clearer, teaching pace
     ensureVoices() {
       return new Promise((resolve) => {
         if (!('speechSynthesis' in window)) { resolve(); return; }
@@ -163,16 +212,29 @@
     pickVoice(langPrefix) {
       if (!Speech.ready) return null;
       const lp = (langPrefix||'en').toLowerCase();
-      // Prefer very clear Spanish voices
-      const preferEs = v => v && v.lang && /^es(-|$)/i.test(v.lang) && /(mexico|spain|us|latam|standard|es[-_](MX|ES|US|419))/i.test(v.name||"");
+      const candidates = Speech.voices;
+
+      const preferNames = [
+        // Common high-quality names across Chrome/Edge
+        'Google español', 'Google US Español', 'Google español de Estados Unidos', 'Google español de México',
+        'Microsoft Sabina', 'Microsoft Alvaro', 'Microsoft Dalia', 'Microsoft Helena',
+        'es-MX', 'es-ES', 'es-US', 'es-419'
+      ];
+
+      const byLang = v => v && v.lang && /^es(-|$)/i.test(v.lang);
+      const byName = v => preferNames.some(n => (v.name||'').toLowerCase().includes(n.toLowerCase()));
+      const isEnglish = v => v && /^en/i.test(v.lang);
+
       if (lp.startsWith('es')){
-        const exact = Speech.voices.find(preferEs) || Speech.voices.find(v=>/^es/i.test(v.lang));
-        if (exact) return exact;
+        return candidates.find(v=>byLang(v) && byName(v))
+            || candidates.find(byLang)
+            || candidates[0]
+            || null;
       }
       if (lp.startsWith('en')){
-        return Speech.voices.find(v=>/^en/i.test(v.lang)) || Speech.voices[0] || null;
+        return candidates.find(isEnglish) || candidates[0] || null;
       }
-      return Speech.voices[0] || null;
+      return candidates[0] || null;
     },
     stop(){ if ('speechSynthesis' in window) window.speechSynthesis.cancel(); },
     pause(){ if ('speechSynthesis' in window) window.speechSynthesis.pause(); },
@@ -182,12 +244,14 @@
       const clean = (text||'').replace(/\s+/g,' ').trim();
       if (!clean) return;
       const voice = Speech.pickVoice(langPrefix);
-      const chunks = chunkText(clean, 160);
-      chunks.forEach((seg,i)=>{
+      const chunks = chunkText(clean, 140);
+      chunks.forEach((seg)=>{
         const u = new SpeechSynthesisUtterance(seg);
         if (voice) u.voice = voice;
         u.lang = voice ? voice.lang : (langPrefix.startsWith('es') ? 'es-ES' : 'en-US');
-        u.rate = rate || Speech.defaultRate;
+        u.rate = rate || (langPrefix.startsWith('es') ? Speech.defaultRateES : Speech.defaultRate);
+        u.pitch = 1.0;
+        u.volume = 1.0;
         window.speechSynthesis.speak(u);
       });
     }
@@ -205,9 +269,7 @@
     return parts;
   }
 
-  /* =========================
-     Per-line TTS injection
-     ========================= */
+  /* ===== Inject per-line TTS buttons ===== */
   function addPerLineTTS(root){
     const tables = root.querySelectorAll('table');
     tables.forEach(tbl=>{
@@ -269,14 +331,12 @@
       e.stopPropagation();
       await Speech.ensureVoices();
       const text = getCellReadableText(td);
-      Speech.stop(); // stop any global player first
-      Speech.speak(text, lang, Speech.defaultRate);
+      Speech.stop();
+      Speech.speak(text, lang, undefined);
     });
   }
 
-  /* =========================
-     Conversation global players
-     ========================= */
+  /* ===== Conversation global players (unchanged) ===== */
   function addConversationPlayers(root){
     const sections = root.querySelectorAll('.section h2');
     sections.forEach(h2=>{
@@ -284,7 +344,7 @@
       const table = h2.parentElement.querySelector('table');
       if(!table) return;
       const trSel = 'tbody tr';
-      const spanishIdx = (()=>{ // figure out ES column idx
+      const spanishIdx = (()=>{
         const ths = Array.from(table.querySelectorAll('thead th'));
         if (!ths.length) return 1;
         for (let i=0;i<ths.length;i++){
@@ -294,7 +354,6 @@
         return ths.length-1;
       })();
 
-      // build controls
       const ctrl = document.createElement('div');
       ctrl.className = 'conv-ctrls';
       const playBtn = document.createElement('button');
@@ -336,13 +395,14 @@
 
   function makeQueuePlayer(lines, lang){
     let idx=0, current=null; 
-    let state='stopped'; // 'playing' | 'paused' | 'stopped'
+    let state='stopped';
     const buildUtterance = (text)=>{
       const voice = Speech.pickVoice(lang);
       const u = new SpeechSynthesisUtterance(text);
       if (voice) u.voice = voice;
       u.lang = voice ? voice.lang : (lang==='es'?'es-ES':'en-US');
-      u.rate = Speech.defaultRate;
+      u.rate = Speech.defaultRateES;
+      u.pitch = 1.0;
       u.onend = ()=>{ if(state!=='stopped'){ idx++; playNext(); } };
       return u;
     };
@@ -363,10 +423,40 @@
     };
   }
 
+  /* ===== Force full blue/red color in Phrases/Questions if needed ===== */
+  function forcePhraseQuestionColoring(root){
+    const sections = Array.from(root.querySelectorAll('.section'));
+    sections.forEach(sec=>{
+      const h2=sec.querySelector('h2'); if(!h2) return;
+      const name=(h2.textContent||'').toLowerCase();
+      if(name.includes('common phrases') || name.includes('frases')){
+        const tbl=sec.querySelector('table'); if(!tbl) return;
+        tbl.classList.add('phrases-table');
+        // style columns
+        addScopedStyle(tbl, `
+          .phrases-table td:first-child { color:${getComputedStyle(document.documentElement).getPropertyValue('--en')||'#1a73e8'}; font-weight:700; }
+          .phrases-table td:last-child { color:${getComputedStyle(document.documentElement).getPropertyValue('--es')||'#d93025'}; font-weight:700; }
+        `);
+      }
+      if(name.includes('common questions') || name.includes('preguntas')){
+        const tbl=sec.querySelector('table'); if(!tbl) return;
+        tbl.classList.add('questions-table');
+        addScopedStyle(tbl, `
+          .questions-table td:first-child { color:${getComputedStyle(document.documentElement).getPropertyValue('--en')||'#1a73e8'}; font-weight:700; }
+          .questions-table td:last-child { color:${getComputedStyle(document.documentElement).getPropertyValue('--es')||'#d93025'}; font-weight:700; }
+        `);
+      }
+    });
+  }
+  function addScopedStyle(el, css){
+    const style=document.createElement('style'); style.textContent=css; el.parentElement.insertBefore(style, el);
+  }
+
   /* =========================
-     VOCABULARY (unchanged UI)
+     ======== VOCABULARY =====
      ========================= */
   (function setupVocab(){
+    // --- UI (added section picker & custom cap @ 300) ---
     const vocabUI=`
       <div class="fcs-card">
         <h2>Vocabulary Creator</h2>
@@ -381,6 +471,7 @@
               <option value="5">Level 5 — Fluent</option>
             </select>
           </div>
+
           <div class="six">
             <label for="v-tmode">Total Words Mode</label>
             <select id="v-tmode"><option value="default" selected>Preset by Level</option><option value="custom">Custom</option></select>
@@ -388,38 +479,92 @@
           </div>
           <div class="six">
             <div class="grid">
-              <div class="six"><label for="v-tmin">Min</label><input id="v-tmin" type="number" min="1" disabled></div>
-              <div class="six"><label for="v-tmax">Max</label><input id="v-tmax" type="number" min="1" disabled></div>
+              <div class="six"><label for="v-tmin">Min</label><input id="v-tmin" type="number" min="1" max="300" disabled></div>
+              <div class="six"><label for="v-tmax">Max (≤300)</label><input id="v-tmax" type="number" min="1" max="300" disabled></div>
             </div>
           </div>
+
+          <div class="twelve">
+            <label>Sections to include</label>
+            <div id="v-sections" class="grid-2" style="align-items:center">
+              <label><input type="checkbox" class="v-sec" value="Nouns" checked> Nouns</label>
+              <label><input type="checkbox" class="v-sec" value="Verbs" checked> Verbs</label>
+              <label><input type="checkbox" class="v-sec" value="Descriptive Words" checked> Descriptive Words</label>
+              <label><input type="checkbox" class="v-sec" value="Common Phrases" checked> Common Phrases</label>
+              <label><input type="checkbox" class="v-sec" value="Common Questions" checked> Common Questions</label>
+              <label><input type="checkbox" id="v-all" checked> All of these</label>
+            </div>
+            <div class="hint">Choose specific sections or leave “All of these” on.</div>
+          </div>
+
           <div class="twelve">
             <label for="v-vocab-include">Vocabulary to Include (optional)</label>
             <textarea id="v-vocab-include" rows="3" placeholder="Paste a full or partial list of words to include..."></textarea>
           </div>
         </div>
+
         <div class="actions">
           <button id="v-gen" class="primary">Generate Vocabulary</button>
           <button id="v-excel">Download Excel</button>
           <button id="v-copy">Copy</button>
           <div id="v-status" class="status"></div>
         </div>
-      </div>
-      <div id="v-output" class="output-container"><p>Your list will appear here...</p></div>`;
+      </div>`;
     $('gen-vocab').innerHTML=vocabUI;
 
-    const genBtn=$('v-gen'),excelBtn=$('v-excel'),copyBtn=$('v-copy'),statusEl=$('v-status'),outputEl=$('v-output'),
+    const genBtn=$('v-gen'),excelBtn=$('v-excel'),copyBtn=$('v-copy'),statusEl=$('v-status'),
           levelEl=$("v-level"),tmodeEl=$("v-tmode"),tminEl=$("v-tmin"),tmaxEl=$("v-tmax"),
           presetTextEl=$("v-presetText"),topicEl=$("v-topic"),vocabIncludeEl=$("v-vocab-include");
 
-    const presetRanges={"1":{min:35,max:55},"2":{min:60,max:85},"3":{min:90,max:120},"4":{min:120,max:180},"5":{min:160,max:240}};
+    const presetRanges={
+      "1":{min:33,max:55},
+      "2":{min:60,max:85},
+      "3":{min:90,max:120},
+      "4":{min:120,max:180},
+      "5":{min:160,max:240}
+    };
     const levelTexts={"1":"Level 1—Survival","2":"Level 2—Beginner","3":"Level 3—Intermediate","4":"Level 4—Conversational","5":"Level 5—Fluent"};
-    function updateUI(){ const isCustom=tmodeEl.value==='custom'; const range=presetRanges[levelEl.value];
-      tminEl.disabled=!isCustom; tmaxEl.disabled=!isCustom; if(!isCustom){tminEl.value=range.min; tmaxEl.value=range.max;}
-      presetTextEl.textContent=`Preset for ${levelTexts[levelEl.value]}: ${range.min}–${range.max} words.`; }
+
+    // All vs specific sections
+    const allToggle=$('v-all');
+    const secBoxes=()=>Array.from(document.querySelectorAll('.v-sec'));
+    function updateSectionLocks(){
+      const all=allToggle.checked;
+      secBoxes().forEach(cb=>{ cb.disabled=all; cb.checked=all?true:cb.checked; });
+    }
+    allToggle.addEventListener('change',updateSectionLocks); updateSectionLocks();
+
+    function selectedSections(){
+      if(allToggle.checked) return ["Nouns","Verbs","Descriptive Words","Common Phrases","Common Questions"];
+      const list=secBoxes().filter(cb=>cb.checked).map(cb=>cb.value);
+      return list.length?list:["Nouns","Verbs","Descriptive Words","Common Phrases","Common Questions"];
+    }
+
+    function updateUI(){
+      const isCustom=tmodeEl.value==='custom';
+      const range=presetRanges[levelEl.value];
+      tminEl.disabled=!isCustom; tmaxEl.disabled=!isCustom;
+      if(!isCustom){ tminEl.value=range.min; tmaxEl.value=range.max; }
+      tmaxEl.max=300; tminEl.max=300;
+      presetTextEl.textContent=`Preset for ${levelTexts[levelEl.value]}: ${range.min}–${range.max} Spanish vocabulary words (red).`;
+    }
     tmodeEl.addEventListener('change',updateUI); levelEl.addEventListener('change',updateUI); updateUI();
 
+    // --- Generate ---
     genBtn.addEventListener('click', ()=>{
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
+      // clamp custom max at 300
+      if(tmodeEl.value==='custom'){
+        const min=Math.max(1, Number(tminEl.value)||1);
+        const max=Math.min(300, Math.max(min, Number(tmaxEl.value)||min));
+        tminEl.value=min; tmaxEl.value=max;
+      }
+
+      const secs=selectedSections();
+      const range=tmodeEl.value==='custom'
+        ? {min:Number(tminEl.value), max:Number(tmaxEl.value)}
+        : presetRanges[levelEl.value];
+
       const prompt =
 `<!DOCTYPE html>
 <!-- FCS VOCABULARY OUTPUT -->
@@ -441,65 +586,146 @@
   .subcategory{background:#eef2ff;font-weight:700;text-align:left}
   .badge{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;background:#f8fafc;font-size:9pt;margin:6px}
   .note{font-size:9pt;color:var(--muted)}
+  /* Full-color rule for Phrases/Questions: entire EN/ES cells */
+  .phrases td:first-child, .questions td:first-child{ color:var(--en); font-weight:700; }
+  .phrases td:last-child, .questions td:last-child{ color:var(--es); font-weight:700; }
   @media(max-width:700px){ .tbl{font-size:9pt;width:auto} }
 </style></head>
 <body><div class="fcs-doc" lang="en">
   <h1>Vocabulary: ${topicEl.value} — ${levelTexts[levelEl.value]}</h1>
   <div class="legend">
     <span class="badge"><span class="en">English</span> / <span class="es" lang="es">Español</span></span>
-    <span class="badge">All English vocabulary must be blue; Spanish red (.en/.es).</span>
+    <span class="badge">English blue; Spanish red (.en/.es). Phrases/Questions: full-cell color.</span>
   </div>
 
-  <!-- STRICT RULES FOR THE MODEL:
-    1) Sections in this order: Nouns, Verbs, Descriptive Words, Common Phrases, Common Questions.
-    2) Two columns only: English | Español. Use full sentences. Highlight the target word with <span class="en"> and <span class="es">.
-    3) Nouns sentences should often start with “Here is …” or “It is …” when natural.
-    4) Verbs sentences must be third-person, prioritize “He…”, then “It…”, then “They…”.
-       Avoid object pronouns (us, them, etc.). Prefer neutral forms.
-    5) Descriptive sentences must be present tense.
-    6) Common Questions rows: the question (bold EN/ES). Next row = its answer (not bold). Then one empty spacer row.
-    7) Subcategories: insert labeled rows like <tr><td class="subcategory" colspan="2">Nouns — Transportation</td></tr> where helpful.
-    8) TOTAL DISTINCT SPANISH VOCAB <= must be in the Level range; count only the red-highlighted Spanish words.
-       Target total = between ${tmodeEl.value==='custom'?(Number(tminEl.value)||'MIN'):'LEVEL_MIN'} and ${tmodeEl.value==='custom'?(Number(tmaxEl.value)||'MAX'):'LEVEL_MAX'}.
-       Distribute Spanish vocab roughly evenly across sections.
-    9) Alphabetize items inside each section by the English term. Use natural, everyday wording.
-    10) Include these specific terms if provided: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.
+  <!-- STRICT CONTRACT FOR THE MODEL:
+    UI.selectedSections = ${JSON.stringify(secs)}
+    TARGET_SPANISH_VOCAB_DISTINCT (count only <span class="es"> inside Nouns, Verbs, Descriptive) MUST be between ${range.min} and ${range.max}. Do not exceed 300.
+    REQUIRED SECTIONS: include ONLY those chosen in UI.selectedSections, in this order: Nouns, Verbs, Descriptive Words, Common Phrases, Common Questions.
+    TABLE RULES: two columns (English | Español); no empty <tbody>; alphabetize by English within each section.
+    VERBS SECTION: third person only (He, She, It, They). English lines must use “is/are going to + [verb] …”. Spanish lines must use “va a/van a + [infinitive] …” (e.g., “Él va a cocinar.”). Avoid first/second person.
+    PHRASES & QUESTIONS: color the entire sentences (EN all blue; ES all red). Use classes "phrases" and "questions" on those tables.
+    NO placeholders or comments; return final content only.
+    If teacher provided a list, you must include those items (plus level-appropriate extras) and still respect the TARGET_SPANISH_VOCAB_DISTINCT range.
   -->
 
+  ${secs.includes('Nouns') ? `
   <div class="section"><h2>Nouns / Sustantivos</h2>
     <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- nouns here --></tbody></table>
-  </div>
+      <tbody><!-- nouns here; mark the target Spanish noun with <span class="es">only the noun</span> --></tbody></table>
+  </div>` : ''}
 
+  ${secs.includes('Verbs') ? `
   <div class="section"><h2>Verbs / Verbos</h2>
     <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- verbs here --></tbody></table>
-  </div>
+      <tbody><!-- verbs here; EN: He/She/It/They is/are going to + verb; ES: (Él/Ella/It/Ellos/Ellas) va/van a + infinitive; mark only the infinitive verb with <span class="es"> --></tbody></table>
+  </div>` : ''}
 
+  ${secs.includes('Descriptive Words') ? `
   <div class="section"><h2>Descriptive Words / Palabras descriptivas</h2>
     <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- descriptive here --></tbody></table>
-  </div>
+      <tbody><!-- descriptive here; mark only the adjective/adverb with <span class="es"> --></tbody></table>
+  </div>` : ''}
 
+  ${secs.includes('Common Phrases') ? `
   <div class="section"><h2>Common Phrases / Frases comunes</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- phrases here --></tbody></table>
-  </div>
+    <table class="tbl phrases"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+      <tbody><!-- full sentences; entire cells colored via CSS (no inner <span class="es"> required) --></tbody></table>
+  </div>` : ''}
 
+  ${secs.includes('Common Questions') ? `
   <div class="section"><h2>Common Questions / Preguntas comunes</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody><!-- Q/A with spacer rows here --></tbody></table>
-  </div>
+    <table class="tbl questions"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+      <tbody><!-- Q (bold) + sample answer row (italics) + spacer row; full-cell color via CSS --></tbody></table>
+  </div>` : ''}
+
+  ${vocabIncludeEl.value ? `
+  <div class="note" style="white-space:pre-wrap;border:1px dashed var(--border);padding:8px;border-radius:8px;margin-top:8px;">
+    Teacher Vocabulary (STRICT use):\n${vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+  </div>` : ''}
+
 </div></body></html>`;
-      generateResult(prompt,genBtn,statusEl,outputEl);
+
+      // ---- Compliance checker (range + sections + verbs style) ----
+      const retryIfBad = (html)=>{
+        try{
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          const headers = Array.from(doc.querySelectorAll('.section h2')).map(h=>h.textContent.trim());
+          const present = new Set(headers.map(h=>h.split('/')[0].trim().toLowerCase()));
+
+          const want = selectedSections().map(s=>s.toLowerCase());
+          const nameMap = {
+            'nouns':'nouns', 'verbs':'verbs',
+            'descriptive words':'descriptive', 'common phrases':'phrases', 'common questions':'questions'
+          };
+          const displayToKey = s=>nameMap[s.toLowerCase()]||s.toLowerCase();
+
+          const missing = want.filter(w=>{
+            if(w==='descriptive words') return !Array.from(present).some(p=>p.includes('descriptive'));
+            return !Array.from(present).some(p=>p.includes(w.replace('common ','').trim()));
+          });
+          const extra = Array.from(present).filter(p=>{
+            const key = ['nouns','verbs','descriptive','phrases','questions'].find(k=>p.toLowerCase().includes(k));
+            if(!key) return false;
+            const disp = Object.keys(nameMap).find(k=>nameMap[k]===key) || key;
+            return !want.includes(disp);
+          });
+
+          // Count distinct <span class="es"> only in Nouns/Verbs/Descriptive
+          const sectionsToCount = ['nouns','verbs','descriptive'];
+          let esWords = [];
+          doc.querySelectorAll('.section').forEach(sec=>{
+            const h2 = sec.querySelector('h2'); if(!h2) return;
+            const t=(h2.textContent||'').toLowerCase();
+            if(sectionsToCount.some(k=>t.includes(k))){
+              sec.querySelectorAll('span.es').forEach(sp=>{
+                const w=(sp.textContent||'').toLowerCase().trim();
+                if(w) esWords.push(w);
+              });
+            }
+          });
+          const distinct = Array.from(new Set(esWords));
+          const count = distinct.length;
+
+          const r = (tmodeEl.value==='custom'
+            ? {min:Number(tminEl.value), max:Number(tmaxEl.value)}
+            : presetRanges[levelEl.value]);
+          const problems=[];
+          if(missing.length) problems.push(`missing sections: ${missing.join(', ')}`);
+          if(extra.length) problems.push(`unexpected sections present: ${extra.join(', ')}`);
+          if(count<r.min || count>Math.min(300,r.max)) problems.push(`Spanish vocab distinct count = ${count} (must be ${r.min}–${Math.min(300,r.max)})`);
+
+          // Verbs pattern check: majority must contain 'va a' or 'van a'
+          const verbSec = Array.from(doc.querySelectorAll('.section')).find(s=>{
+            const h=s.querySelector('h2'); return h && /verbs/i.test(h.textContent||'');
+          });
+          if(verbSec){
+            const ths=Array.from(verbSec.querySelectorAll('thead th'));
+            let esIdx = ths.findIndex(th=>/español|espanol/i.test(th.textContent||'')); if(esIdx<0) esIdx=ths.length-1;
+            const rows=Array.from(verbSec.querySelectorAll('tbody tr'));
+            let total=0, ok=0;
+            rows.forEach(tr=>{
+              const tds=Array.from(tr.querySelectorAll('td'));
+              if(!tds.length) return;
+              total++;
+              const txt=(tds[esIdx]?.textContent||'').toLowerCase();
+              if(/\bva a\b/.test(txt) || /\bvan a\b/.test(txt)) ok++;
+            });
+            if(total>0 && ok/total < 0.8) problems.push(`verbs not following "va a/van a" pattern (only ${ok}/${total} lines)`);
+          }
+          return problems.length ? problems.join('; ') : '';
+        }catch(e){ return ''; }
+      };
+
+      generateResult(prompt,genBtn,statusEl,$('v-output'),{retryIfBad});
     });
 
-    $('v-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
-    $('v-excel').addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,topicEl.value||'Vocabulary'));
+    $('v-copy').addEventListener('click',()=>copyToClipboard($('v-output'),statusEl));
+    $('v-excel').addEventListener('click',()=>downloadAsExcel($('v-output'),statusEl,topicEl.value||'Vocabulary'));
   })();
 
   /* =========================
-     CONVERSATION (compliance + player)
+     ===== CONVERSATION UI ===
      ========================= */
   (function setupConvo(){
     const convoUI=`
@@ -531,8 +757,7 @@
           <div class="grid-full"><label>Optional Teacher Notes</label><textarea id="c-notes" rows="4"></textarea></div>
         </div>
         <div class="actions"><button id="c-gen" class="primary">Generate</button><button id="c-excel">Excel</button><button id="c-copy">Copy</button><div id="c-status" class="status"></div></div>
-      </div>
-      <div id="c-output" class="output-container"><p>Your conversation appears here...</p></div>`;
+      </div>`;
     $('gen-convo').innerHTML = convoUI;
 
     const countrySelect=$('c-country');
@@ -666,31 +891,29 @@
 
   ${ui.vocab && ui.vocab!=="(auto-generate level-appropriate list if empty)" ? `
   <div class="note" style="white-space:pre-wrap;border:1px dashed var(--border);padding:8px;border-radius:8px;margin-top:8px;">
-    Teacher Vocabulary (STRICT use):\n${ui.vocab.replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+    Teacher Vocabulary (STRICT use):\n${$('c-vocab').value.replace(/</g,"&lt;").replace(/>/g,"&gt;")}
   </div>` : ''}
 
-  ${ui.teacherNotes ? `<div class="note" style="white-space:pre-wrap;margin-top:8px;">Teacher notes:\n${ui.teacherNotes.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>` : ''}
+  ${ui.teacherNotes ? `<div class="note" style="white-space:pre-wrap;margin-top:8px;">Teacher notes:\n${$('c-notes').value.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>` : ''}
 
 </div>
 </body>
 </html>`;
 
-      // compliance checker for sentence-per-turn; 1 retry if needed
       const retryIfBad = (html)=>{
         try{
           const doc = new DOMParser().parseFromString(html, 'text/html');
           const sections = Array.from(doc.querySelectorAll('.section h2')).filter(h=>/Conversation\s+\d+/i.test(h.textContent||''));
-          const min = sentMin, max = sentMax;
+          const min = Math.max(1, Number($('c-sentMin').value)||2);
+          const max = Math.max(min, Number($('c-sentMax').value)||4);
           const problems=[];
           sections.forEach((h, si)=>{
             const tbl = h.parentElement.querySelector('table');
             if(!tbl) { problems.push(`conv ${si+1}: missing table`); return; }
             const rows = Array.from(tbl.querySelectorAll('tbody tr'));
             if(!rows.length){ problems.push(`conv ${si+1}: no rows`); return; }
-            // Determine columns (use Spanish column)
             const ths = Array.from(tbl.querySelectorAll('thead th'));
             let esIdx = ths.findIndex(th=>/español|espanol/i.test(th.textContent||'')); if(esIdx<0) esIdx=ths.length-1;
-            // Count sentences in Spanish cell (proxy)
             rows.forEach((tr,ri)=>{
               const tds = Array.from(tr.querySelectorAll('td'));
               if(!tds.length) return;
@@ -712,7 +935,7 @@
   })();
 
   /* =========================
-     TEST (unchanged)
+     ========= TEST ==========
      ========================= */
   (function setupTest(){
     const testUI=`
@@ -729,8 +952,7 @@
           </select></div>
         <div><label><input type="checkbox" id="t-anskeys" checked> Include Teacher Answer Keys?</label></div>
         <div class="actions"><button id="t-gen" class="primary">Generate</button><button id="t-excel">Excel</button><button id="t-copy">Copy</button><div id="t-status" class="status"></div></div>
-      </div>
-      <div id="t-output" class="output-container"><p>Your test will appear here...</p></div>`;
+      </div>`;
     $('gen-test').innerHTML=testUI;
 
     const genBtn=$('t-gen'),excelBtn=$('t-excel'),copyBtn=$('t-copy'),statusEl=$('t-status'),outputEl=$('t-output');
