@@ -338,7 +338,7 @@ Regenerate STRICTLY COMPLYING with ALL constraints. Do not change structure or c
 
         completion = client.chat.completions.create(
             model="gpt-4o",
-            temperature=0.0,  # stick to rules
+            temperature=0.4,  # stick to rules
             messages=[
                 {
                     "role": "system",
