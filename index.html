@@ -161,11 +161,22 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       const u=new SpeechSynthesisUtterance(s);
       if (v) u.voice=v;
       u.lang = v ? v.lang : (lang.startsWith('es')?'es-ES':'en-US');
-      u.rate = lang.startsWith('es') ? 0.8 : (opts.rate || this.defaultRate);
-      if (opts.pitch) u.pitch = opts.pitch;
+      u.rate = lang.startsWith('es') ? 0.92 : (opts.rate || this.defaultRate);  /* clearer & more natural ES */
+      u.pitch = (typeof opts.pitch === 'number') ? opts.pitch : 1.0;
+      u.volume = 1.0;
       window.speechSynthesis.speak(u);
     }
   };
+
+  /* READ CELL TEXT WITHOUT THE 🔊 BUTTON */
+  function getCellReadableText(td){
+    let txt = '';
+    td.childNodes.forEach(n=>{
+      const isBtn = n.nodeType===1 && n.tagName==='BUTTON' && n.classList.contains('tts-line-btn');
+      if (!isBtn) txt += (n.textContent || '');
+    });
+    return txt.replace(/\s+/g,' ').trim();
+  }
 
   /* Conversation audio helpers */
   const speakerVoiceMap = new Map(); // speaker -> {pitch}
@@ -214,7 +225,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
                 b.addEventListener('click', async e=>{
                   e.stopPropagation();
                   await Speech.ensureVoices();
-                  let raw = td.innerText || '';
+                  const raw = getCellReadableText(td);   /* ← exclude the button text */
                   if (isConversation){
                     const speaker = getSpeakerFromText(raw) || `Speaker${speakerVoiceMap.size+1}`;
                     const assign = assignVoiceForSpeaker(speaker);
@@ -250,7 +261,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         const tds=Array.from(r.querySelectorAll('td'));
         const cell = tds[esIdx];
         if (!cell) return null;
-        const raw = (cell.textContent||'').trim();
+        const raw = getCellReadableText(cell);      /* ← exclude the button text */
         if(!raw) return null;
         const speaker = getSpeakerFromText(raw) || 'Narr';
         const text = stripSpeakerLabel(raw);
@@ -279,8 +290,9 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         const v = Speech.pickVoice('es');
         if (v) u.voice=v;
         u.lang = v ? v.lang : 'es-ES';
-        u.rate = 0.8;
+        u.rate = 0.92;     /* clearer & more natural ES */
         u.pitch = assign.pitch;
+        u.volume = 1.0;
         u.onend = onend;
         window.speechSynthesis.speak(u);
         state='playing';
@@ -774,7 +786,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
             }
           });
 
-          // FIB strictness (NEW English rule)
+          // FIB strictness (English = full sentence w/ blue bold vocab; Spanish = (english) ________)
           if (ui.addFIB==='yes'){
             const fibH2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/Fill\-in\-the\-Blank|Practice/i.test(h.textContent||''));
             if(!fibH2){ problems.push('missing Fill-in-the-Blank section'); }
@@ -810,14 +822,12 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
                   // Spanish must contain "(english) ________"
                   const hintRaw = (enSpan ? enSpan.textContent : '').trim();
                   if (!hintRaw){
-                    // If we don't have a span, still try to validate a generic pattern
                     if (!/\([^)]*\)\s*_+/.test(esText)) problems.push(`FIB row ${idx+1}: Spanish must contain a hint in parentheses before the blank`);
                   } else {
                     const hintRegex = new RegExp("\\(" + escapeRegExp(hintRaw) + "\\)\\s*_+", "i");
                     if (!hintRegex.test(esText)) problems.push(`FIB row ${idx+1}: Spanish must contain "(${hintRaw}) ________" with the hint immediately before the blank`);
                   }
                   if (!/_{6,}/.test(esText)) problems.push(`FIB row ${idx+1}: missing blank "________"`);
-
                 });
               }
             }
