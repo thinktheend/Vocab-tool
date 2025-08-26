@@ -103,7 +103,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     statusEl.textContent = "Done.";
   }
 
-  /* Copy */
+  /* Copy helpers */
   function copyToClipboard(container,statusEl){
     if(!container.innerHTML || container.innerText.includes("will appear here")){
       statusEl.textContent="Nothing to copy."; return;
@@ -112,6 +112,16 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       ()=>statusEl.textContent="Copied!",
       ()=>{ const t=document.createElement("textarea"); t.value=container.innerText; document.body.appendChild(t); t.select();
             try{ document.execCommand("copy") ? statusEl.textContent="Copied!" : statusEl.textContent="Copy failed."; }
+            catch(e){ statusEl.textContent="Copy failed."; }
+            document.body.removeChild(t); }
+    );
+  }
+  function copyText(text,statusEl){
+    if(!text){ statusEl.textContent="Nothing to copy."; return; }
+    navigator.clipboard.writeText(text).then(
+      ()=>statusEl.textContent="Prompt copied!",
+      ()=>{ const t=document.createElement("textarea"); t.value=text; document.body.appendChild(t); t.select();
+            try{ document.execCommand("copy") ? statusEl.textContent="Prompt copied!" : statusEl.textContent="Copy failed."; }
             catch(e){ statusEl.textContent="Copy failed."; }
             document.body.removeChild(t); }
     );
@@ -161,7 +171,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       const u=new SpeechSynthesisUtterance(s);
       if (v) u.voice=v;
       u.lang = v ? v.lang : (lang.startsWith('es')?'es-ES':'en-US');
-      u.rate = lang.startsWith('es') ? 0.92 : (opts.rate || this.defaultRate);  /* clearer & more natural ES */
+      u.rate = lang.startsWith('es') ? 0.92 : (opts.rate || this.defaultRate);
       u.pitch = (typeof opts.pitch === 'number') ? opts.pitch : 1.0;
       u.volume = 1.0;
       window.speechSynthesis.speak(u);
@@ -225,7 +235,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
                 b.addEventListener('click', async e=>{
                   e.stopPropagation();
                   await Speech.ensureVoices();
-                  const raw = getCellReadableText(td);   /* ← exclude the button text */
+                  const raw = getCellReadableText(td);
                   if (isConversation){
                     const speaker = getSpeakerFromText(raw) || `Speaker${speakerVoiceMap.size+1}`;
                     const assign = assignVoiceForSpeaker(speaker);
@@ -261,7 +271,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         const tds=Array.from(r.querySelectorAll('td'));
         const cell = tds[esIdx];
         if (!cell) return null;
-        const raw = getCellReadableText(cell);      /* ← exclude the button text */
+        const raw = getCellReadableText(cell);
         if(!raw) return null;
         const speaker = getSpeakerFromText(raw) || 'Narr';
         const text = stripSpeakerLabel(raw);
@@ -290,7 +300,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         const v = Speech.pickVoice('es');
         if (v) u.voice=v;
         u.lang = v ? v.lang : 'es-ES';
-        u.rate = 0.92;     /* clearer & more natural ES */
+        u.rate = 0.92;
         u.pitch = assign.pitch;
         u.volume = 1.0;
         u.onend = onend;
@@ -362,13 +372,14 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
           <button id="v-gen" class="primary">Generate Vocabulary</button>
           <button id="v-excel">Download Excel</button>
           <button id="v-copy">Copy</button>
+          <button id="v-prompt">Prompt</button>
           <div id="v-status" class="status"></div>
         </div>
       </div>
       <div id="v-output" class="output-container"><p>Your list will appear here...</p></div>`;
     $('gen-vocab').innerHTML=vocabUI;
 
-    const genBtn=$('v-gen'),excelBtn=$('v-excel'),copyBtn=$('v-copy'),statusEl=$('v-status'),outputEl=$('v-output'),
+    const genBtn=$('v-gen'),excelBtn=$('v-excel'),copyBtn=$('v-copy'),promptBtn=$('v-prompt'),statusEl=$('v-status'),outputEl=$('v-output'),
           levelEl=$("v-level"),tmodeEl=$("v-tmode"),tminEl=$("v-tmin"),tmaxEl=$("v-tmax"),
           presetTextEl=$("v-presetText"),topicEl=$("v-topic"),vocabIncludeEl=$("v-vocab-include");
 
@@ -399,9 +410,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     }
     tmodeEl.addEventListener('change',updateUI); levelEl.addEventListener('change',updateUI); updateUI();
 
-    genBtn.addEventListener('click', async ()=>{
-      if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
-
+    function buildVocabPrompt(){
       const secs = selectedSections();
       const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
             includeP = secs.includes('phrases'), includeQ = secs.includes('questions');
@@ -431,7 +440,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         `You MUST produce a total of DISTINCT Spanish vocabulary words BETWEEN ${minCount} and ${maxCount} IN Nouns, Verbs, Descriptive Words ONLY. Count = unique <span class=\"es\"> terms in those sections. Do NOT count Phrases/Questions.`,
         "Nouns: prefer starters like “Here is …” or “It is …” when natural.",
         "Verbs: third-person only (He/She/It/They) and ALWAYS use “is/are going to + [infinitive] …”.",
-        /* NEW: descriptive-only coloring */
         "Descriptive Words: present tense sentences; wrap ONLY the single descriptive word (adjective/adverb) in <span class=\"en\"> / <span class=\"es\">. Do NOT color any nouns in this section; exactly one colored descriptive word per row.",
         "Common Phrases: wrap the entire English cell and the entire Spanish cell in <span class=\"full-black\">…</span> so the whole sentence is black.",
         "Common Questions: question line bold in both languages; answer line normal; BOTH full sentences wrapped in <span class=\"full-black\">…</span>; add an empty spacer row after each Q&A.",
@@ -487,10 +495,20 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 
   ${sectionsHTML}
 </div></body></html>`;
+      return prompt;
+    }
+
+    genBtn.addEventListener('click', async ()=>{
+      if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
+
+      const prompt = buildVocabPrompt();
 
       const validator = (html)=>{
         try{
           const doc = new DOMParser().parseFromString(html,'text/html');
+          const secs = selectedSections();
+          const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
+                includeP = secs.includes('phrases'), includeQ = secs.includes('questions');
           const want = { nouns:includeN, verbs:includeV, descriptive:includeD, phrases:includeP, questions:includeQ };
           const nameToRegex = {
             nouns:/^\s*Nouns/i, verbs:/^\s*Verbs/i, descriptive:/^\s*Descriptive/i,
@@ -522,12 +540,12 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
           const count = Array.from(new Set(allEs)).length;
 
           const presetRanges={"1":{min:33,max:55},"2":{min:60,max:85},"3":{min:90,max:120},"4":{min:120,max:180},"5":{min:160,max:240}};
-          const min = (tmodeEl.value==='custom') ? Math.max(1, Math.min(300, Number(tminEl.value)||1)) : presetRanges[levelEl.value].min;
-          const max = (tmodeEl.value==='custom') ? Math.max(min, Math.min(300, Number(tmaxEl.value)||min)) : presetRanges[levelEl.value].max;
+          const isCustom = (tmodeEl.value==='custom');
+          const min = isCustom ? Math.max(1, Math.min(300, Number(tminEl.value)||1)) : presetRanges[levelEl.value].min;
+          const max = isCustom ? Math.max(min, Math.min(300, Number(tmaxEl.value)||min)) : presetRanges[levelEl.value].max;
           if (count < min || count > max)
             problems.push(`Spanish vocab count ${count} outside required range ${min}–${max}`);
 
-          /* phrases/questions full-black check */
           function fullBlackOK(h2regex){
             const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>h2regex.test(h.textContent||''));
             if(!h2) return true;
@@ -544,11 +562,10 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
                 && (esSpan.textContent||'').trim() === (es.textContent||'').trim();
             });
           }
-          if(includeP && !fullBlackOK(/^\s*Common Phrases/i)) problems.push('Phrases lines must be fully wrapped in <span class="full-black">…</span>');
-          if(includeQ && !fullBlackOK(/^\s*Common Questions/i)) problems.push('Questions lines must be fully wrapped in <span class="full-black">…</span>');
+          if(secs.includes('phrases') && !fullBlackOK(/^\s*Common Phrases/i)) problems.push('Phrases lines must be fully wrapped in <span class="full-black">…</span>');
+          if(secs.includes('questions') && !fullBlackOK(/^\s*Common Questions/i)) problems.push('Questions lines must be fully wrapped in <span class="full-black">…</span>');
 
-          /* NEW: Descriptive section must have exactly ONE colored word per row (avoid nouns) */
-          if (includeD){
+          if (secs.includes('descriptive')){
             const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/^\s*Descriptive/i.test(h.textContent||''));
             if (h2){
               const rows = Array.from(h2.parentElement.querySelectorAll('tbody tr'));
@@ -574,12 +591,18 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       genBtn.disabled = false;
     });
 
+    promptBtn.addEventListener('click', ()=>{
+      if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
+      const prompt = buildVocabPrompt();
+      copyText(prompt, statusEl);
+    });
+
     $('v-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     $('v-excel').addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,topicEl.value||'Vocabulary'));
   })();
 
   /* =========================
-     Conversation (adds Level 6 — Native)
+     Conversation (incl. Level 6 — Native)
      ========================= */
   (function setupConvo(){
     const convoUI =
@@ -622,7 +645,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
           <div class="grid-full"><label>Optional Teacher Notes</label><textarea id="c-notes" rows="4"></textarea></div>
         </div>
 
-        <div class="actions"><button id="c-gen" class="primary">Generate</button><button id="c-excel">Excel</button><button id="c-copy">Copy</button><div id="c-status" class="status"></div></div>
+        <div class="actions"><button id="c-gen" class="primary">Generate</button><button id="c-excel">Excel</button><button id="c-copy">Copy</button><button id="c-prompt">Prompt</button><div id="c-status" class="status"></div></div>
       </div>
       <div id="c-output" class="output-container"><p>Your conversation appears here...</p></div>`;
     $('gen-convo').innerHTML=convoUI;
@@ -653,10 +676,10 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     $('c-level').addEventListener('change', applyConvLevelLock);
     applyConvLevelLock();
 
-    const genBtn=$('c-gen'),excelBtn=$('c-excel'),copyBtn=$('c-copy'),statusEl=$('c-status'),outputEl=$('c-output');
+    const genBtn=$('c-gen'),excelBtn=$('c-excel'),copyBtn=$('c-copy'),promptBtn=$('c-prompt'),statusEl=$('c-status'),outputEl=$('c-output');
 
-    genBtn.addEventListener('click', async ()=>{
-      const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
+    function buildConvoPrompt(){
+      const topic=$('c-topic').value.trim();
       const sentMin = Math.max(1, Number($('c-sentMin').value)||2);
       const sentMax = Math.max(sentMin, Number($('c-sentMax').value)||4);
       const turnsApprox = Math.max(1, Number($('c-turns').value)||10);
@@ -792,6 +815,12 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 </div>
 </body>
 </html>`;
+      return { prompt, ui, uiForModel, isNative };
+    }
+
+    genBtn.addEventListener('click', async ()=>{
+      const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
+      const { prompt, ui, uiForModel, isNative } = buildConvoPrompt();
 
       const validator = (html)=>{
         try{
@@ -801,9 +830,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
           const convH2s = Array.from(doc.querySelectorAll('.section h2')).filter(h=>/Conversation\s+\d+/i.test(h.textContent||''));
           if (convH2s.length !== uiForModel.numConvos) problems.push(`need exactly ${uiForModel.numConvos} conversation sections, found ${convH2s.length}`);
 
-          // Level 6: enforce monologue only
           if (isNative){
-            // Only one speaker
             const tbl = convH2s[0]?.parentElement.querySelector('table');
             if(!tbl){ problems.push('native: missing conversation table'); }
             else {
@@ -812,7 +839,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
                 .filter(Boolean).map(m=>m[1]));
               if (speakerNames.size !== 1) problems.push(`native: expected exactly 1 speaker, found ${speakerNames.size||0}`);
 
-              // Ensure it's long (heuristic: total sentences in Spanish >= 25)
               const ths = Array.from(tbl.querySelectorAll('thead th')).map(th=>th.textContent.trim().toLowerCase());
               const esIdx = ths.findIndex(t=>t.includes('español')||t.includes('espanol'));
               const rows = Array.from(tbl.querySelectorAll('tbody tr'));
@@ -828,7 +854,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
               if (totalEsSent < 25) problems.push(`native: monologue too short (${totalEsSent} sentences); expand substantially`);
             }
 
-            // No FIB / Vocab Used / Answer Key sections
             const hasFIB = Array.from(doc.querySelectorAll('.section h2')).some(h=>/Fill\-in\-the\-Blank|Practice/i.test(h.textContent||''));
             const hasVU  = Array.from(doc.querySelectorAll('.section h2')).some(h=>/Vocabulary Used/i.test(h.textContent||''));
             const hasAK  = Array.from(doc.querySelectorAll('.section h2')).some(h=>/Answer Key/i.test(h.textContent||''));
@@ -836,7 +861,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
             if (hasVU)  problems.push('native: Vocabulary Used section must not be present');
             if (hasAK)  problems.push('native: Answer Key section must not be present');
           } else {
-            // Standard (non-native) checks
             convH2s.forEach((h2, idx)=>{
               const tbl = h2.parentElement.querySelector('table'); if(!tbl){problems.push(`conv ${idx+1}: missing table`); return;}
               const ths = Array.from(tbl.querySelectorAll('thead th')).map(th=>th.textContent.trim().toLowerCase());
@@ -875,7 +899,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
               }
             });
 
-            // FIB strictness (if present)
             if (uiForModel.addFIB==='yes'){
               const fibH2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/Fill\-in\-the\-Blank|Practice/i.test(h.textContent||''));
               if(!fibH2){ problems.push('missing Fill-in-the-Blank section'); }
@@ -925,11 +948,17 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         }catch(e){ return ''; }
       };
 
-      const html = await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, 2);
+      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, 2);
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
       addConversationPlayers(outputEl);
       genBtn.disabled = false; // re-usable
+    });
+
+    promptBtn.addEventListener('click', ()=>{
+      const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
+      const { prompt } = buildConvoPrompt();
+      copyText(prompt, statusEl);
     });
 
     $('c-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
