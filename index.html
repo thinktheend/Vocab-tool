@@ -178,7 +178,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     }
   };
 
-  /* READ CELL TEXT WITHOUT THE 🔊 BUTTON */
   function getCellReadableText(td){
     let txt = '';
     td.childNodes.forEach(n=>{
@@ -188,8 +187,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     return txt.replace(/\s+/g,' ').trim();
   }
 
-  /* Conversation audio helpers */
-  const speakerVoiceMap = new Map(); // speaker -> {pitch}
+  const speakerVoiceMap = new Map();
   function getSpeakerFromText(t){
     const m = (t||'').trim().match(/^([A-Za-zÁÉÍÓÚÜÑáéíóúüñ'’\-]+)\s*:\s*/);
     return m ? m[1] : "";
@@ -199,12 +197,11 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   }
   function assignVoiceForSpeaker(speaker){
     if (speakerVoiceMap.has(speaker)) return speakerVoiceMap.get(speaker);
-    const assign = { pitch: speakerVoiceMap.size % 2 ? 0.95 : 1.05 }; // alt pitch
+    const assign = { pitch: speakerVoiceMap.size % 2 ? 0.95 : 1.05 };
     speakerVoiceMap.set(speaker, assign);
     return assign;
   }
 
-  /* Per-line TTS */
   function addPerLineTTS(root){
     const sections = root.querySelectorAll('.section');
     sections.forEach(section=>{
@@ -255,7 +252,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     });
   }
 
-  /* Conversation global players */
   function addConversationPlayers(root){
     const sections = Array.from(root.querySelectorAll('.section h2'))
       .filter(h2=>/Conversation\s+\d+/i.test(h2.textContent||''));
@@ -410,6 +406,53 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     }
     tmodeEl.addEventListener('change',updateUI); levelEl.addEventListener('change',updateUI); updateUI();
 
+    /* ---------- Prompt builder: INSTRUCTIONS (plain text) ---------- */
+    function buildVocabInstruction(){
+      const secs = selectedSections();
+      const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
+            includeP = secs.includes('phrases'), includeQ = secs.includes('questions');
+
+      let minCount, maxCount;
+      if (tmodeEl.value==='custom'){
+        minCount = Math.max(1, Math.min(300, Number(tminEl.value) || 1));
+        maxCount = Math.max(minCount, Math.min(300, Number(tmaxEl.value) || minCount));
+      } else {
+        const r = presetRanges[levelEl.value];
+        minCount = r.min; maxCount = r.max;
+      }
+
+      const onlySections = [
+        includeN?'Nouns':null,
+        includeV?'Verbs':null,
+        includeD?'Descriptive Words':null,
+        includeP?'Common Phrases':null,
+        includeQ?'Common Questions':null
+      ].filter(Boolean).join(', ');
+
+      return [
+`You are an expert assistant for the Fast Conversational Spanish (FCS) program.`,
+`Return ONLY a full, valid, self-contained HTML document for a Vocabulary handout.`,
+`Do not include Markdown fences or commentary.`,
+`Title: "Vocabulary — ${topicEl.value}". Level label: "${levelTexts[levelEl.value]}".`,
+`Use these class names exactly in your HTML (no extras): .fcs-doc, .section, .tbl, .en, .es, .full-black, .subcategory.`,
+`Generate ONLY these sections, in this order: ${onlySections || '(none)'}.`,
+`Each section uses a two-column table: "English" | "Español".`,
+`Rules (strict):`,
+`1) Highlight target words with <span class="en"> (English) and <span class="es"> (Spanish).`,
+`2) Alphabetize rows by the English term inside each section; use natural everyday sentences.`,
+`3) Distinct Spanish vocabulary COUNT across Nouns + Verbs + Descriptive Words ONLY must be BETWEEN ${minCount} and ${maxCount}. Count = unique red <span class="es"> terms in those three sections only (ignore Phrases/Questions for count).`,
+`4) Nouns sentences: prefer “Here is …” or “It is …” when natural.`,
+`5) Verbs sentences: third-person only (He/She/It/They) and ALWAYS use “is/are going to + [infinitive] …”.`,
+`6) Descriptive Words: present tense. Color ONLY the single descriptive word (adjective/adverb) in each row; do NOT color nouns in this section; exactly one <span class="en"> and one <span class="es"> per row.`,
+`7) Common Phrases: wrap the entire English cell AND the entire Spanish cell in <span class="full-black">…</span> so both are fully black.`,
+`8) Common Questions: present each Q/A as two consecutive rows (question bold in both languages; answer normal). Wrap both full sentences (English and Spanish) in <span class="full-black">…</span>. Add one empty spacer row after each Q&A pair.`,
+`9) Do not leave any <tbody> empty. If a section is requested, populate it fully.`,
+`10) Teacher includes (if any): ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/[\r\n]+/g,'; ').replace(/</g,'&lt;').replace(/>/g,'&gt;') : 'None'}. Respect these and still meet the count.`,
+`Output: full HTML only.`
+      ].join('\n');
+    }
+
+    /* ---- Build actual HTML prompt (unchanged) ---- */
     function buildVocabPrompt(){
       const secs = selectedSections();
       const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
@@ -498,6 +541,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       return prompt;
     }
 
+    /* ---- Generate (unchanged) ---- */
     genBtn.addEventListener('click', async ()=>{
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
 
@@ -591,10 +635,11 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       genBtn.disabled = false;
     });
 
+    /* ---- Prompt button: copies INSTRUCTIONS text (not HTML) ---- */
     promptBtn.addEventListener('click', ()=>{
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
-      const prompt = buildVocabPrompt();
-      copyText(prompt, statusEl);
+      const instruction = buildVocabInstruction();
+      copyText(instruction, statusEl);
     });
 
     $('v-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
@@ -602,7 +647,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   })();
 
   /* =========================
-     Conversation (incl. Level 6 — Native)
+     Conversation (incl. Level 6 lock logic already present)
      ========================= */
   (function setupConvo(){
     const convoUI =
@@ -678,7 +723,8 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 
     const genBtn=$('c-gen'),excelBtn=$('c-excel'),copyBtn=$('c-copy'),promptBtn=$('c-prompt'),statusEl=$('c-status'),outputEl=$('c-output');
 
-    function buildConvoPrompt(){
+    /* ---------- Prompt builder: INSTRUCTIONS (plain text) ---------- */
+    function buildConvoInstruction(){
       const topic=$('c-topic').value.trim();
       const sentMin = Math.max(1, Number($('c-sentMin').value)||2);
       const sentMax = Math.max(sentMin, Number($('c-sentMax').value)||4);
@@ -704,13 +750,89 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       };
 
       const isNative = ui.level === '6';
+
+      const header = [
+        `You are an expert assistant for the Fast Conversational Spanish (FCS) program.`,
+        `Return ONLY a full, valid, self-contained HTML document for a Conversation lesson.`,
+        `Do not include Markdown fences or commentary.`,
+        `Use exactly these class names in your HTML (no extras): .fcs-doc, .section, .tbl, .en, .es.`,
+        `Title the document "Conversation — ${ui.topic}" and show "Level ${ui.level}".`,
+      ];
+
+      const baseRules = [
+        `Create EXACTLY ${isNative ? 1 : ui.numConvos} conversation section${isNative || ui.numConvos===1 ? '' : 's'} titled "Conversation 1", "Conversation 2", ...`,
+        `Use exactly ${isNative ? 1 : ui.numSpeakers} distinct speaker name${(isNative || ui.numSpeakers===1)?'':'s'} that fit the region: ${ui.region}.`,
+        (ui.includeEN==='yes'
+          ? `Every conversation table must have two columns (English | Español), with those header texts exactly.`
+          : `Every conversation table must have a single Español column (header text exactly "Español").`),
+        `Keep the flow natural and realistic; avoid robotic symmetry; vary turn lengths.`,
+        ...(isNative ? [] : [
+          `Every turn must contain between ${ui.sentences_per_turn.min} and ${ui.sentences_per_turn.max} sentences in Spanish (and English if included).`
+        ]),
+        `Stay on topic "${ui.topic}" with tone "${ui.tone}".`,
+        ui.vocab && ui.vocab !== "(auto-generate level-appropriate list if empty)"
+          ? `Teacher vocabulary (must use when natural): ${ui.vocab.replace(/[\r\n]+/g,'; ').replace(/</g,'&lt;').replace(/>/g,'&gt;')}`
+          : `Vocabulary: auto-generate, level-appropriate.`,
+      ];
+
+      const fibRules = (isNative || ui.addFIB!=='yes') ? [] : [
+        `Include a "Practice — Fill-in-the-Blank (${ui.fibFocus})" section with a table of exactly two columns (headers must be "English" and "Español").`,
+        `Each FIB row must follow STRICT formatting:`,
+        `• English cell = full, natural English sentence that corresponds to Spanish; NO blanks; the translated target word MUST be wrapped in <span class="en">…</span> (bold blue).`,
+        `• Español cell = full Spanish sentence with the target Spanish word replaced by "________"; immediately BEFORE the blank include the English word in parentheses (exactly the same text as inside <span class="en">…</span>). Example: Cuando lleguemos al (airport) ________ , tomamos un taxi.`,
+        `No answers or notes inside the table cells.`,
+        ui.showFIBKey==='yes'
+          ? `Add an "Answer Key" section listing numbered answers only (no sentences).`
+          : `Do NOT include an Answer Key.`
+      ];
+
+      const vocabListRule = (isNative || ui.showVocabList!=='yes') ? [] : [
+        `Include a "Vocabulary Used" section with a two-column table (English | Español).`
+      ];
+
+      const nativeOverride = isNative ? [
+        `LEVEL 6 — NATIVE OVERRIDE (STRICT):`,
+        `• Output ONLY conversation section(s); do NOT include FIB, Vocabulary Used, or Answer Key.`,
+        `• Exactly one conversation: "Conversation 1".`,
+        `• Exactly one speaker (a native-sounding name). Produce a VERY LONG, cohesive monologue in Spanish (and English column too if includeEN === "yes"), reflecting the tone "${ui.tone}". You may split the monologue into several turns by the same speaker to create readable chunks.`,
+        `• Ignore the sentences-per-turn min/max; prioritize long, natural discourse with depth and nuance.`
+      ] : [];
+
+      const footer = [
+        `Output: full HTML only (no commentary).`,
+      ];
+
+      return [...header, '', 'Rules (strict):', ...baseRules, ...fibRules, ...vocabListRule, ...nativeOverride, '', ...footer].join('\n');
+    }
+
+    /* ---- Build actual HTML prompt (unchanged) ---- */
+    function buildConvoPrompt(){
+      const topic=$('c-topic').value.trim();
+      const sentMin = Math.max(1, Number($('c-sentMin').value)||2);
+      const sentMax = Math.max(sentMin, Number($('c-sentMax').value)||4);
+      const turnsApprox = Math.max(1, Number($('c-turns').value)||10);
+
+      const ui = {
+        topic,
+        level: $('c-level').value,
+        sentences_per_turn: { min: sentMin, max: sentMax },
+        vocab: $('c-vocab').value || "(auto-generate level-appropriate list if empty)",
+        numConvos: Math.max(1, Number($('c-numConvos').value)||1),
+        numSpeakers: Math.max(1, Number($('c-numSpeakers').value)||1),
+        turnsApprox,
+        tone: $('c-tone').value,
+        region: $('c-country').value,
+        includeEN: $('c-includeEN').value,
+        addFIB: $('c-addFib').value,
+        fibFocus: $('c-fibFocus').value,
+        showFIBKey: $('c-showFIBKey').value,
+        showVocabList: $('c-showVocabList').value,
+        teacherNotes: $('c-notes').value||""
+      };
+
+      const isNative = ui.level === '6';
       const uiForModel = isNative ? {
-        ...ui,
-        numConvos: 1,
-        numSpeakers: 1,
-        addFIB: 'no',
-        showFIBKey: 'no',
-        showVocabList: 'no'
+        ...ui, numConvos: 1, numSpeakers: 1, addFIB: 'no', showFIBKey: 'no', showVocabList: 'no'
       } : ui;
 
       const prompt =
@@ -754,7 +876,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     - Output ONLY conversation sections (no FIB, no Vocabulary Used, no Answer Key).
     - EXACTLY one conversation: "Conversation 1".
     - EXACTLY one speaker (a native voice name). Produce a VERY LONG, cohesive monologue in Spanish (and English column too if UI.includeEN === "yes"), that fully reflects "${uiForModel.tone}" and real-life flow. Use natural paragraph-like turns (you may split the monologue into several turns by the same speaker).
-    - Ignore sentence-per-turn constraints; prioritize long, natural discourse with depth, nuance, and continuity.
+    - Ignore sentence-per-turn constraints; prioritize long, natural discourse with depth and nuance.
     ` : `
     - Keep the flow natural and realistic: mix short replies with longer turns; avoid robotic symmetry.
     - Every turn contains between UI.sentences_per_turn.min and UI.sentences_per_turn.max sentences in Spanish (and English if included).
@@ -818,6 +940,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       return { prompt, ui, uiForModel, isNative };
     }
 
+    /* ---- Generate (unchanged) ---- */
     genBtn.addEventListener('click', async ()=>{
       const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
       const { prompt, ui, uiForModel, isNative } = buildConvoPrompt();
@@ -952,13 +1075,14 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
       addConversationPlayers(outputEl);
-      genBtn.disabled = false; // re-usable
+      genBtn.disabled = false;
     });
 
+    /* ---- Prompt button: copies INSTRUCTIONS text (not HTML) ---- */
     promptBtn.addEventListener('click', ()=>{
       const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
-      const { prompt } = buildConvoPrompt();
-      copyText(prompt, statusEl);
+      const instruction = buildConvoInstruction();
+      copyText(instruction, statusEl);
     });
 
     $('c-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
