@@ -151,6 +151,81 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     }catch(e){console.error("Excel Error:",e); statusEl.textContent="Failed to create Excel."}
   }
 
+  /* ===== Level-specific MUST-FOLLOW rules (text only; used in prompts) ===== */
+  function getLevelRulesLines(level){
+    switch(String(level)){
+      case '1':
+        return [
+          'LEVEL 1 – Fluent Reading & Pronunciation (MUST FOLLOW):',
+          '• Purpose: Evaluate reading accuracy, pronunciation, and fluency only.',
+          '• Provide a long scripted conversation; the student only reads (no creation).',
+          '• Must read smoothly, with correct stress and intonation.',
+          '• No grammar production required — purely recognition and oral delivery.',
+          '• Include full range of topic vocabulary.',
+          '• Pass Criteria: natural conversational speed; ≥90% correct pronunciation; intonation matches meaning (e.g., rising tone for questions).'
+        ];
+      case '2':
+        return [
+          'LEVEL 2 – Present Tense, Reflexives & Glue Words (MUST FOLLOW):',
+          '• Purpose: Assess ability to produce correct present tense structures with connectors.',
+          '• Grammar Required: Ser & Estar (characteristics vs. states/locations).',
+          '• Present tense with all regular verbs.',
+          '• Present tense with: tener que, necesitar, querer, ir a, poder, acabar de, gustar.',
+          '• Conditional with: poder, gustar, deber (polite/softened intent).',
+          '• Object pronouns (direct & indirect).',
+          '• Reflexive verbs in present tense (with regular verbs).',
+          '• Glue words (connectors not verbs/nouns/adjectives).',
+          '• Prepositions: a, en, de, con, por, para, etc.',
+          '• Conjunctions: y, o, pero, porque, si, cuando, aunque, etc.',
+          '• Adverbs: bien, mal, rápido, siempre, ahora, después, etc.',
+          '• Pronouns: yo, tú, él, ella, nosotros, ustedes, ellos, etc.',
+          '• Possessive & demonstrative: mi, tu, su, nuestro; ese/este/estos, etc.',
+          '• Comparisons: más… que; tan… como; tanto… como; mayor, menor, peor, mejor.',
+          '• Quantities: mucho, poco, todo, algunos, ninguno, etc.',
+          '• Time words: hoy, mañana, ahora, todavía, ya, temprano, tarde, etc.'
+        ];
+      case '3':
+        return [
+          'LEVEL 3 – Adds Past Tenses & Progressive (MUST FOLLOW):',
+          '• Purpose: Narrate/describe in both past and present.',
+          '• Includes ALL Level 2 items, plus:',
+          '• Present tense with regular & irregular verbs.',
+          '• Pretérito (completed past actions).',
+          '• Imperfecto (ongoing/habitual past).',
+          '• Progressive forms in present (estar + gerundio).'
+        ];
+      case '4':
+        return [
+          'LEVEL 4 – Adds Future, Conditionals, Perfects & All Uses of “Se” (MUST FOLLOW):',
+          '• Purpose: Express plans, hypotheticals, completed actions, and “se” constructions.',
+          '• Includes ALL Level 2 & 3 items, plus:',
+          '• Simple future.',
+          '• Simple conditional.',
+          '• Present perfect.',
+          '• Present perfect progressive.',
+          '• All uses of “se”: passive (Se venden boletos), impersonal (Se juega con cinco jugadores), clitic/obj pronoun (Se lo di), reflexives (Se levanta), immediate reflexive (irse), intensifying reflexive (Se comió todo), accidental (Se me olvidó), reciprocal (Se pasan el balón).'
+        ];
+      case '5':
+        return [
+          'LEVEL 5 – Adds Imperatives, Subjunctive, Expanded Progressives & Perfects (MUST FOLLOW):',
+          '• Purpose: Command, persuade, hypothesize, and narrate across all tenses.',
+          '• Includes ALL Level 2, 3, and 4 items, plus:',
+          '• Imperative — positive and negative.',
+          '• Subjunctive — present and past (use where required by triggers/volition/doubt/emotion, etc.).',
+          '• Progressives — present, future, conditional, preterite, imperfect.',
+          '• Perfect tenses — present, future, conditional, preterite, imperfect.',
+          '• Perfect progressives — present, future, conditional, preterite, imperfect.'
+        ];
+      case '6':
+        return [
+          'LEVEL 6 – Native (MUST FOLLOW):',
+          '• Produce a very long, cohesive monologue by a single native-sounding speaker that fully reflects the selected tone; ignore per-turn sentence bounds; no FIB/Vocab Used/Answer Key.'
+        ];
+      default:
+        return [];
+    }
+  }
+
   /* Speech helpers */
   const Speech = {
     voices: [], ready:false, defaultRate:0.85,
@@ -430,6 +505,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       ].filter(Boolean).join(', ');
 
       const teacherIncl = vocabIncludeEl.value ? vocabIncludeEl.value.replace(/[\r\n]+/g,'; ') : 'None';
+      const levelLines = getLevelRulesLines(levelEl.value);
 
       return [
 `You are an expert assistant for the Fast Conversational Spanish (FCS) program.`,
@@ -438,6 +514,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 `Sections to generate (strictly this subset, in order): ${onlySections || '(none)'}.`,
 `Total DISTINCT Spanish vocabulary items across Nouns + Verbs + Descriptive Words must be BETWEEN ${minCount} and ${maxCount}.`,
 `Teacher-provided vocabulary to include when natural: ${teacherIncl}.`,
+`LEVEL-SPECIFIC MUST-FOLLOW RULES:\n- ${levelLines.join('\n- ')}`,
 
 `PART A — READABLE VIEW (for Word):
 - Use Markdown headings per section (e.g., "## Nouns / Sustantivos").
@@ -465,7 +542,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       ].join('\n');
     }
 
-    /* ---- Build actual HTML prompt (unchanged) ---- */
+    /* ---- Build actual HTML prompt (app generation) ---- */
     function buildVocabPrompt(){
       const secs = selectedSections();
       const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
@@ -496,12 +573,13 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         `You MUST produce a total of DISTINCT Spanish vocabulary words BETWEEN ${minCount} and ${maxCount} IN Nouns, Verbs, Descriptive Words ONLY. Count = unique <span class=\"es\"> terms in those sections. Do NOT count Phrases/Questions.`,
         "Nouns: prefer starters like “Here is …” or “It is …” when natural.",
         "Verbs: third-person only (He/She/It/They) and ALWAYS use “is/are going to + [infinitive] …”.",
-        "Descriptive Words: present tense sentences; wrap ONLY the single descriptive word (adjective/adverb) in <span class=\"en\"> / <span class=\"es\">. Do NOT color any nouns in this section; exactly one colored descriptive word per row.",
+        "Descriptive: present tense sentences; wrap ONLY the single descriptive word (adjective/adverb) in <span class=\"en\"> / <span class=\"es\">. Do NOT color any nouns in this section; exactly one colored descriptive word per row.",
         "Common Phrases: wrap the entire English cell and the entire Spanish cell in <span class=\"full-black\">…</span> so the whole sentence is black.",
         "Common Questions: question line bold in both languages; answer line normal; BOTH full sentences wrapped in <span class=\"full-black\">…</span>; add an empty spacer row after each Q&A.",
         `Include these specific terms if provided: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.`,
         "No table may have an empty <tbody>. If a section is requested, populate it fully."
       ];
+      const levelLines = getLevelRulesLines(levelEl.value);
 
       let sectionsHTML = "";
       if (includeN) sectionsHTML += `<div class="section"><h2>Nouns / Sustantivos</h2>
@@ -547,6 +625,8 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 
   <!-- STRICT RULES:
     ${rules.map((r,i)=>`${i+1}) ${r}`).join('\n    ')}
+    LEVEL-SPECIFIC MUST-FOLLOW RULES:
+    - ${getLevelRulesLines(levelEl.value).join('\n    - ')}
   -->
 
   ${sectionsHTML}
@@ -554,7 +634,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       return prompt;
     }
 
-    /* ---- Generate (unchanged) ---- */
+    /* ---- Generate (unchanged UI/output) ---- */
     genBtn.addEventListener('click', async ()=>{
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
 
@@ -763,6 +843,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       };
 
       const isNative = ui.level === '6';
+      const levelLines = getLevelRulesLines(ui.level);
 
       const header = [
         `You are an expert assistant for the Fast Conversational Spanish (FCS) program.`,
@@ -770,7 +851,8 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         `Topic: "${ui.topic}". Level: ${ui.level}. Tone: "${ui.tone}". Region/culture cues: "${ui.region}".`,
         ui.vocab && ui.vocab !== "(auto-generate level-appropriate list if empty)"
           ? `Teacher vocabulary (use naturally when appropriate): ${ui.vocab.replace(/[\r\n]+/g,'; ')}`
-          : `Vocabulary: auto-generate, level-appropriate.`
+          : `Vocabulary: auto-generate, level-appropriate.`,
+        `LEVEL-SPECIFIC MUST-FOLLOW RULES:\n- ${levelLines.join('\n- ')}`
       ];
 
       const baseRules = [
@@ -782,7 +864,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         (ui.includeEN==='yes'
           ? `Tables are two-column: "English" | "Español".`
           : `Tables are single-column: "Español" only.`),
-        `Keep the flow natural and realistic; mix short replies with longer turns; avoid robotic symmetry.`,
+        `Keep the flow natural and realistic; mix short replies with longer turns; avoid robotic symmetry.`
       ];
 
       const fibRules = (isNative || ui.addFIB!=='yes') ? [] : [
@@ -790,7 +872,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         `Readable View rule:`,
         `• English cell = full, natural English sentence corresponding to Spanish; NO blanks; the translated target word is wrapped in [EN]...[/EN].`,
         `• Español cell = full Spanish sentence with the target Spanish word replaced by "________"; immediately BEFORE the blank include the English word in parentheses (exactly the same text as inside [EN]...[/EN]).`,
-        `CSV rule for FIB given below (Part B).`,
         ui.showFIBKey==='yes'
           ? `Provide a numbered Answer Key (answers only) after FIB.`
           : `Do NOT include an Answer Key.`
@@ -837,7 +918,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       return [...header, '', 'Rules (strict):', ...baseRules, ...fibRules, ...vocabListRule, ...nativeOverride, '', ...partA, '', ...partB, '', ...footer].join('\n');
     }
 
-    /* ---- Build actual HTML prompt (unchanged) ---- */
+    /* ---- Build actual HTML prompt (app generation) ---- */
     function buildConvoPrompt(){
       const topic=$('c-topic').value.trim();
       const sentMin = Math.max(1, Number($('c-sentMin').value)||2);
@@ -902,6 +983,8 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     - Create EXACTLY UI.numConvos conversation sections titled "Conversation 1", "Conversation 2", ... .
     - Each conversation uses names typical of UI.region. Use exactly UI.numSpeakers distinct speakers (no anonymous "A/B").
     - Topic must stay on "${uiForModel.topic}"; tone must be "${uiForModel.tone}" and level-appropriate for Level ${uiForModel.level}.
+    - LEVEL-SPECIFIC MUST-FOLLOW RULES:
+      - ${getLevelRulesLines(uiForModel.level).join('\n      - ')}
 
     ${isNative ? `
     === NATIVE OVERRIDE (Level 6 — Native) ===
@@ -972,7 +1055,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       return { prompt, ui, uiForModel, isNative };
     }
 
-    /* ---- Generate (unchanged) ---- */
+    /* ---- Generate (unchanged UI/output) ---- */
     genBtn.addEventListener('click', async ()=>{
       const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
       const { prompt, ui, uiForModel, isNative } = buildConvoPrompt();
