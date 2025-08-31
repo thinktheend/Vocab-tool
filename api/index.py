@@ -3,8 +3,7 @@ import json
 from http.server import BaseHTTPRequestHandler
 from openai import OpenAI
 
-# Endpoint: /api/index  (expects JSON body: {"prompt": "<full HTML prompt>"} )
-
+# You can override with an env var on Vercel: OPENAI_MODEL=gpt-4o
 MODEL_DEFAULT = os.environ.get("OPENAI_MODEL", "gpt-4o")
 
 class handler(BaseHTTPRequestHandler):
@@ -36,14 +35,17 @@ class handler(BaseHTTPRequestHandler):
                 model=MODEL_DEFAULT,
                 temperature=0.9,
                 top_p=0.9,
-                max_tokens=10000,
+                max_tokens=12000,   # allow long monologues / many rows
                 messages=[
                     {
                         "role": "system",
                         "content": (
                             "You are an expert assistant for the Fast Conversational Spanish (FCS) program. "
-                            "Return ONLY the raw HTML (a full, valid, self-contained document). "
-                            "No explanations. No code fences."
+                            "Return ONLY a full, valid, self-contained HTML document. "
+                            "BEFORE YOU REPLY: verify that every required section is populated. "
+                            "Specifically: every <tbody> MUST contain fully generated rows (no empty <tbody>, no placeholders). "
+                            "If any table would be empty, generate appropriate rows so the document is complete. "
+                            "Do NOT add explanations or code fences."
                         )
                     },
                     {"role": "user", "content": prompt}
@@ -51,12 +53,15 @@ class handler(BaseHTTPRequestHandler):
             )
 
             ai_content = completion.choices[0].message.content or ""
+            # Safety: strip code fences if the model adds them
             if "```" in ai_content:
                 parts = ai_content.split("```")
                 if len(parts) > 1:
                     candidate = parts[1]
-                    if candidate.lower().startswith(('html','xml','markdown')):
-                        ai_content = candidate.split('\n',1)[1] if '\n' in candidate else candidate
+                    # strip optional language tag
+                    lowers = candidate.lower()
+                    if lowers.startswith(("html", "xml", "markdown")):
+                        ai_content = candidate.split("\n", 1)[1] if "\n" in candidate else candidate
                     else:
                         ai_content = candidate
 
