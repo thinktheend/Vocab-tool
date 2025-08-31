@@ -3,32 +3,13 @@ import json
 from http.server import BaseHTTPRequestHandler
 from openai import OpenAI
 
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
-OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
-
-# Tuned client options: avoid long internal retries (faster failures) and cap total wait.
-_client = OpenAI(
-    api_key=os.environ.get("OPENAI_API_KEY", ""),
-    base_url=OPENAI_BASE_URL or None,
-    organization=OPENAI_ORG_ID or None,
-    timeout=60.0,         # Hard client timeout per request (seconds)
-    max_retries=0,        # Don't silently retry for 60+ sec; fail fast so frontend can re-try if needed
-)
-
-SYSTEM_PROMPT = (
-    "You are an expert assistant for the Fast Conversational Spanish (FCS) program. "
-    "Return ONLY the raw HTML (a full, valid, self-contained document). "
-    "You MUST strictly honor all counts/limits/section names implied by the user's prompt. "
-    "No table may have an empty <tbody>. "
-    "If any required section would be empty or mis-sized, you MUST internally regenerate BEFORE replying, "
-    "and return only the final compliant HTML. "
-    "Do NOT add greetings, explanations, or code fences like ```html."
-)
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")  # optional
+OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")      # optional
 
 class handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS, GET")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def do_OPTIONS(self):
@@ -38,8 +19,8 @@ class handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         self.send_response(200)
-        self.send_header("Content-type", "application/json; charset=utf-8")
         self._send_cors_headers()
+        self.send_header("Content-type", "application/json; charset=utf-8")
         self.end_headers()
         self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
 
@@ -47,7 +28,6 @@ class handler(BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(content_length) if content_length else b"{}"
-
             try:
                 data = json.loads(raw.decode("utf-8"))
             except json.JSONDecodeError:
@@ -61,24 +41,39 @@ class handler(BaseHTTPRequestHandler):
             if not api_key:
                 raise ValueError("Server configuration error: OPENAI_API_KEY is not set in Vercel env vars.")
 
-            # (client is module-level; it will read the env key on init; double-check here)
-            if not _client.api_key:
-                raise ValueError("Server configuration error: OpenAI client missing API key.")
+            client = OpenAI(
+                api_key=api_key,
+                base_url=OPENAI_BASE_URL or None,
+                organization=OPENAI_ORG_ID or None,
+            )
 
-            # Bigger token budget = less chance of truncation; you said output size > token cost.
-            completion = _client.chat.completions.create(
+            # Faster single-pass: push strict self-checking into the prompt and avoid retries here.
+            completion = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.9,
-                max_tokens=15000,
+                max_tokens=15000,  # allow bigger/longer outputs; user is fine with more tokens
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an expert FCS assistant. Return ONLY full raw HTML (a complete, valid document). "
+                            "STRICTLY follow the embedded contract in the user's HTML prompt: "
+                            "• Obey all UI selections/quantities exactly (levels, sections, counts, turns, sentences/turn). "
+                            "• Nouns must include subcategories as header rows in the same table. "
+                            "• Descriptive rows must reference nouns/verbs introduced in this output. "
+                            "• If 1 conversation & 1 speaker, produce a monologue (single-speaker) obeying turns/sentences-per-turn. "
+                            "• Level differences must align with CEFR notions included in the prompt. "
+                            "• No empty <tbody>; self-check all constraints BEFORE responding. "
+                            "Do NOT add explanations or code fences."
+                        ),
+                    },
                     {"role": "user", "content": prompt},
                 ],
             )
 
             ai_content = (completion.choices[0].message.content or "").strip()
 
-            # Strip code fences if any slipped through
+            # Strip accidental fences if present
             if "```" in ai_content:
                 parts = ai_content.split("```")
                 for chunk in parts:
@@ -86,25 +81,4 @@ class handler(BaseHTTPRequestHandler):
                     if not chunk:
                         continue
                     lines = chunk.splitlines()
-                    if lines and len(lines[0]) <= 10 and lines[0].lower() in {"html", "xml", "markdown"}:
-                        chunk = "\n".join(lines[1:]).strip()
-                    ai_content = chunk
-                    break
-                ai_content = ai_content.strip()
-
-            self.send_response(200)
-            self.send_header("Content-type", "application/json; charset=utf-8")
-            self._send_cors_headers()
-            self.end_headers()
-            self.wfile.write(json.dumps({"content": ai_content}).encode("utf-8"))
-
-        except Exception as e:
-            print(f"AN ERROR OCCURRED: {e}")
-            self.send_response(500)
-            self.send_header("Content-type", "application/json; charset=utf-8")
-            self._send_cors_headers()
-            self.end_headers()
-            self.wfile.write(json.dumps({
-                "error": "An internal server error occurred.",
-                "details": str(e),
-            }).encode("utf-8"))
+                    if lines and len(lines[0]) <= 10 and lines[0].lower() in {"
