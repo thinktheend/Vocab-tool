@@ -1,10 +1,16 @@
 import os
+import re
 import json
 from http.server import BaseHTTPRequestHandler
 from openai import OpenAI
 
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")  # optional
 OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")      # optional
+
+FENCE_RE = re.compile(
+    r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$",
+    re.IGNORECASE
+)
 
 class handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
@@ -39,7 +45,7 @@ class handler(BaseHTTPRequestHandler):
 
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
-                raise ValueError("Server configuration error: OPENAI_API_KEY is not set in Vercel env vars.")
+                raise ValueError("Server configuration error: OPENAI_API_KEY is not set.")
 
             client = OpenAI(
                 api_key=api_key,
@@ -47,11 +53,11 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            # Faster single-pass: push strict self-checking into the prompt and avoid retries here.
+            # Single, larger pass for speed (your UI validators enforce constraints).
             completion = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.9,
-                max_tokens=15000,  # allow bigger/longer outputs; user is fine with more tokens
+                max_tokens=15000,  # allow longer HTML outputs without truncation
                 messages=[
                     {
                         "role": "system",
@@ -61,7 +67,7 @@ class handler(BaseHTTPRequestHandler):
                             "• Obey all UI selections/quantities exactly (levels, sections, counts, turns, sentences/turn). "
                             "• Nouns must include subcategories as header rows in the same table. "
                             "• Descriptive rows must reference nouns/verbs introduced in this output. "
-                            "• If 1 conversation & 1 speaker, produce a monologue (single-speaker) obeying turns/sentences-per-turn. "
+                            "• If 1 conversation & 1 speaker, produce a monologue obeying turns/sentences-per-turn. "
                             "• Level differences must align with CEFR notions included in the prompt. "
                             "• No empty <tbody>; self-check all constraints BEFORE responding. "
                             "Do NOT add explanations or code fences."
@@ -73,12 +79,24 @@ class handler(BaseHTTPRequestHandler):
 
             ai_content = (completion.choices[0].message.content or "").strip()
 
-            # Strip accidental fences if present
-            if "```" in ai_content:
-                parts = ai_content.split("```")
-                for chunk in parts:
-                    chunk = chunk.strip()
-                    if not chunk:
-                        continue
-                    lines = chunk.splitlines()
-                    if lines and len(lines[0]) <= 10 and lines[0].lower() in {"
+            # Safely strip accidental code fences if the model added them.
+            m = FENCE_RE.match(ai_content)
+            if m:
+                ai_content = m.group(1).strip()
+
+            self.send_response(200)
+            self._send_cors_headers()
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"content": ai_content}).encode("utf-8"))
+
+        except Exception as e:
+            print(f"AN ERROR OCCURRED: {e}")
+            self.send_response(500)
+            self._send_cors_headers()
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "error": "An internal server error occurred.",
+                "details": str(e)
+            }).encode("utf-8"))
