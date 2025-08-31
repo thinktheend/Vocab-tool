@@ -3,9 +3,27 @@ import json
 from http.server import BaseHTTPRequestHandler
 from openai import OpenAI
 
-# Optional: allow custom endpoints (e.g., Azure/OpenAI-compatible providers)
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")  # e.g. "https://api.openai.com/v1"
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
 OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
+
+# Tuned client options: avoid long internal retries (faster failures) and cap total wait.
+_client = OpenAI(
+    api_key=os.environ.get("OPENAI_API_KEY", ""),
+    base_url=OPENAI_BASE_URL or None,
+    organization=OPENAI_ORG_ID or None,
+    timeout=60.0,         # Hard client timeout per request (seconds)
+    max_retries=0,        # Don't silently retry for 60+ sec; fail fast so frontend can re-try if needed
+)
+
+SYSTEM_PROMPT = (
+    "You are an expert assistant for the Fast Conversational Spanish (FCS) program. "
+    "Return ONLY the raw HTML (a full, valid, self-contained document). "
+    "You MUST strictly honor all counts/limits/section names implied by the user's prompt. "
+    "No table may have an empty <tbody>. "
+    "If any required section would be empty or mis-sized, you MUST internally regenerate BEFORE replying, "
+    "and return only the final compliant HTML. "
+    "Do NOT add greetings, explanations, or code fences like ```html."
+)
 
 class handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
@@ -18,7 +36,6 @@ class handler(BaseHTTPRequestHandler):
         self._send_cors_headers()
         self.end_headers()
 
-    # (Optional) lightweight health check
     def do_GET(self):
         self.send_response(200)
         self.send_header("Content-type", "application/json; charset=utf-8")
@@ -42,49 +59,32 @@ class handler(BaseHTTPRequestHandler):
 
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
-                raise ValueError(
-                    "Server configuration error: OPENAI_API_KEY is not set in Vercel env vars."
-                )
+                raise ValueError("Server configuration error: OPENAI_API_KEY is not set in Vercel env vars.")
 
-            # Build the client. Do NOT pass any 'proxies=' kwarg; httpx is pinned in requirements.
-            client = OpenAI(
-                api_key=api_key,
-                base_url=OPENAI_BASE_URL or None,
-                organization=OPENAI_ORG_ID or None,
-            )
+            # (client is module-level; it will read the env key on init; double-check here)
+            if not _client.api_key:
+                raise ValueError("Server configuration error: OpenAI client missing API key.")
 
-            # You can swap the model to gpt-4o-mini for speed/cost if desired.
-            completion = client.chat.completions.create(
+            # Bigger token budget = less chance of truncation; you said output size > token cost.
+            completion = _client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.9,
+                max_tokens=15000,
                 messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are an expert assistant for the Fast Conversational Spanish (FCS) program. "
-                            "Return ONLY the raw HTML (a full, valid, self-contained document). "
-                            "BEFORE YOU REPLY: verify that every required section in the user's template is populated. "
-                            "No table may have an empty <tbody>. "
-                            "If any section would be empty, you MUST generate appropriate content to fill it. "
-                            "Do NOT add greetings, explanations, or code fences like ```html."
-                        ),
-                    },
+                    {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
                 ],
             )
 
             ai_content = (completion.choices[0].message.content or "").strip()
 
-            # Strip code fences if the model added them anyway.
+            # Strip code fences if any slipped through
             if "```" in ai_content:
-                # Take the first fenced block if present
                 parts = ai_content.split("```")
-                # Try to find the first non-empty fenced content
                 for chunk in parts:
                     chunk = chunk.strip()
                     if not chunk:
                         continue
-                    # Remove an optional language hint on the first line (e.g., "html")
                     lines = chunk.splitlines()
                     if lines and len(lines[0]) <= 10 and lines[0].lower() in {"html", "xml", "markdown"}:
                         chunk = "\n".join(lines[1:]).strip()
@@ -92,23 +92,19 @@ class handler(BaseHTTPRequestHandler):
                     break
                 ai_content = ai_content.strip()
 
-            # Build response
-            response_payload = {"content": ai_content}
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
             self._send_cors_headers()
             self.end_headers()
-            self.wfile.write(json.dumps(response_payload).encode("utf-8"))
+            self.wfile.write(json.dumps({"content": ai_content}).encode("utf-8"))
 
         except Exception as e:
-            # Log server-side for Vercel live logs
             print(f"AN ERROR OCCURRED: {e}")
             self.send_response(500)
             self.send_header("Content-type", "application/json; charset=utf-8")
             self._send_cors_headers()
             self.end_headers()
-            error_payload = {
+            self.wfile.write(json.dumps({
                 "error": "An internal server error occurred.",
                 "details": str(e),
-            }
-            self.wfile.write(json.dumps(error_payload).encode("utf-8"))
+            }).encode("utf-8"))
