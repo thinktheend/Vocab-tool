@@ -134,7 +134,7 @@
     }catch(e){console.error("Excel Error:",e); statusEl.textContent="Failed to create Excel."}
   }
 
-  /* Speech (clean start; never read labels) */
+  /* Speech (clean start; never read labels; strip “Speaker high volume”) */
   const Speech = {
     voices: [], ready:false, defaultRate:0.85,
     ensureVoices(){ return new Promise(res=>{ if(!('speechSynthesis'in window)){res();return;}
@@ -270,6 +270,82 @@
     });
   }
 
+  /* ============ LEVEL RULES (verbatim) ============ */
+  function levelRuleText(level){
+    switch(String(level)){
+      case "1":
+        return `LEVEL 1 – Fluent Reading & Pronunciation
+Purpose: Evaluate reading accuracy, pronunciation, and fluency only.
+- Long scripted conversation provided (student does not create).
+- Must read smoothly, with correct stress and intonation.
+- No grammar production required — purely recognition and oral delivery.
+- Includes full range of topic vocabulary.
+Pass Criteria:
+- Reads at natural conversational speed.
+- Correct pronunciation of at least 90% of words.
+- Intonation matches meaning (e.g., rising tone for questions).`;
+      case "2":
+        return `LEVEL 2 – Present Tense, Reflexives & Glue Words
+Purpose: Assess ability to produce correct present tense structures with connectors.
+Grammar Required:
+- Ser & Estar – correct use for characteristics vs. states/locations.
+- Present tense with all regular verbs.
+- Present tense with: tener que, necesitar, querer, ir a, poder, acabar de, gustar.
+- Conditional tense with: poder, gustar, deber.
+- Object pronouns (direct & indirect).
+- Reflexive verbs in present tense, with regular verbs.
+- Glue Words (anything that’s not a verb, noun, or adjective).
+- Prepositions (a, en, de, con, por, para, etc.).
+- Conjunctions (y, o, pero, porque, si, cuando, aunque, etc).
+- Adverbs (bien, mal, rápido, siempre, ahora, después, etc.).
+- Pronouns (yo, tú, él, ella, nosotros, ustedes, ellos, etc.).
+- Possessive & demonstrative pronouns (mi, tu, su, nuestro, ese, este, estos, etc).
+- Comparisons (más… que, tan… como, tanto… como, mayor, menor, peor, mejor, etc.).
+- Quantities (mucho, poco, todo, algunos, ninguno, etc).
+- Words of time (hoy, mañana, ahora, todavía, ya, temprano, tarde, etc).`;
+      case "3":
+        return `LEVEL 3 – Adds Past Tenses & Progressive
+Purpose: Assess ability to narrate and describe in both past and present.
+Grammar Required:
+- All Level 2 requirements, plus:
+- Present Tense with Regular & Irregular Verbs (entiendo, hablo, etc).
+- Pretérito for completed past actions (comí, etc).
+- Imperfecto for ongoing/habitual past actions (hablaba, etc).
+- Progressive forms in present tense (estoy comiendo, etc).`;
+      case "4":
+        return `LEVEL 4 – Adds Future, Conditionals, Perfects & All Uses of “Se”
+Purpose: Assess ability to express plans, hypothetical situations, completed actions, and “se” constructions.
+Grammar Required:
+- All Level 2 & 3 requirements, plus:
+- Simple future (hablaré, etc).
+- Simple conditional (hablaría, etc).
+- Present perfect (he hablado, etc).
+- Present perfect progressive (he estado hablando, etc).
+- All uses of “se”:
+  • Passive (Se venden boletos).
+  • Impersonal (Se juega con cinco jugadores).
+  • Object pronouns (Se lo di).
+  • Reflexives (Se levanta).
+  • Immediate reflexive (irse).
+  • Intensifying reflexive (Se comió todo).
+  • Accidental reflexive (Se me olvidó).
+  • Reciprocal reflexive (Se pasan el balón).`;
+      case "5":
+        return `LEVEL 5 – Adds Imperatives, Subjunctive, Expanded Progressives & Perfects
+Purpose: Assess ability to command, persuade, hypothesize, and narrate across all tenses.
+Grammar Required:
+- All Level 2, 3, and 4 requirements, plus:
+- Imperative – positive and negative (¡coma!, etc).
+- Subjunctive – present and past (espero que comes, etc).
+- Progressives – present, future, conditional, preterite, imperfect (estaba hablando, estuve hablando, estaría hablando, estaré hablando, estoy hablando).
+- Perfect tenses – present, future, conditional, preterite, imperfect (hube hablado, había hablado, habré hablado, habría hablado, he hablado, etc).
+- Perfect progressives – present, future, conditional, preterite, imperfect (hube estado hablando, había estado hablando, habré estado hablando, habría estado hablando, he estado hablando, etc).`;
+      default:
+        return `LEVEL 6 – Native
+- Native-level register & nuance; idiomatic flow; honor selected tone and region.`;
+    }
+  }
+
   /* =========================
      VOCABULARY
      ========================= */
@@ -384,6 +460,8 @@
         includeQ?'Common Questions':null
       ].filter(Boolean).join(', ');
 
+      const levelBlock = levelRuleText(levelEl.value);
+
       const rules = [
         `Generate ONLY these sections: ${onlySections}. Do NOT include any other section header.`,
         "Two columns only: English | Español. Use full sentences.",
@@ -395,8 +473,9 @@
         "Descriptive: present-tense examples; ONLY the descriptive word is colored (not surrounding nouns).",
         "Common Phrases & Common Questions: wrap entire English and Spanish cells in <span class=\"full-black\">…</span> (full black sentences).",
         "Coherence: Descriptive/Phrases/Questions must connect to the nouns/verbs used here.",
+        `LEVEL RULES to reflect in examples:\n${levelBlock}`,
         `Include teacher terms if provided: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.`,
-        "Populate EVERY table <tbody> (no empty bodies)."
+        "Populate EVERY table <tbody> (no empty bodies). Return final content only (no placeholders)."
       ];
 
       let sectionsHTML = "";
@@ -493,17 +572,20 @@ INCLUDE SECTIONS ONLY: ${onlySections}.
 
 OUTPUT FORMAT (plain text; tab-separated; pasteable to Word/Excel):
 - For each section, print the section title alone.
-- Then a header line: English<TAB>Español
+- Then a header line: English\\tEspañol
 - Then rows of full-sentence examples.
 - For Nouns, insert subcategory rows as a single cell line like: [Nouns — Transportation] (no TAB).
 - For Common Phrases and Common Questions: full sentences in both English and Spanish; no special markup.
 
 HARD CONSTRAINTS:
-- DISTINCT Spanish vocabulary total (unique target words/phrases) ACROSS Nouns, Verbs, Descriptive ONLY must be BETWEEN ${r.min} and ${r.max}. Do NOT count Phrases/Questions.
+- DISTINCT Spanish vocabulary total (unique targets) ACROSS Nouns, Verbs, Descriptive MUST be BETWEEN ${r.min} and ${r.max}. Do NOT count Phrases/Questions.
 - Verbs: third-person only; always "is/are going to + [infinitive] …".
-- Descriptive section: the descriptive word is the focus; nouns around it are NOT the target.
-- Coherence: Descriptive/Phrases/Questions must relate to the nouns/verbs used in this set.
+- Descriptive section: the descriptive word is the focus (only it is the “target”).
+- Coherence: Descriptive/Phrases/Questions must relate to the nouns/verbs here.
 - If teacher list provided, strictly include: ${(($('#v-vocab-include').value)||'None').replace(/\t/g,' ')}
+
+LEVEL RULES (apply in your examples):
+${levelRuleText(levelEl.value)}
 
 SELF-CHECK:
 - Count unique Spanish targets for Nouns+Verbs+Descriptive. If outside ${r.min}-${r.max}, adjust before finalizing.
@@ -577,14 +659,6 @@ Return ONLY the plain text tables described above (no HTML or code).`;
     function buildSentencePlan(turns, minS, maxS){
       const plan=[]; for(let i=0;i<turns;i++){ plan.push(Math.floor(Math.random()*(maxS-minS+1))+minS); } return plan;
     }
-    function cefrRulesForConvo(level){
-      if (level==="1") return "Reading fluency only (recognition/pronunciation); minimal grammar production.";
-      if (level==="2") return "Present tense; ser/estar; reflexives; object pronouns; tener que/querer/poder/ir a/acabar de/gustar; glue words, comparisons, quantities, time words.";
-      if (level==="3") return "All L2 + preterite, imperfect, present progressive; narrate in past & present.";
-      if (level==="4") return "All L2/L3 + simple future, conditional, present perfect, present perfect progressive, all uses of 'se'.";
-      if (level==="5") return "All earlier + imperatives, subjunctive, expanded progressives & perfects across tenses.";
-      return "Native-level register & nuance; idiomatic flow; honor tone/region.";
-    }
 
     $('c-gen').addEventListener('click', async ()=>{
       const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
@@ -612,8 +686,9 @@ Return ONLY the plain text tables described above (no HTML or code).`;
         teacherNotes: $('c-notes').value||""
       };
 
+      const levelBlock = levelRuleText(ui.level);
       const monologueRule = (ui.numConvos===1 && ui.numSpeakers===1)
-        ? "- Since UI.numConvos=1 and UI.numSpeakers=1: produce ONE very long monologue that uses the sentence plan strictly and flows naturally."
+        ? "- Since UI.numConvos=1 and UI.numSpeakers=1: produce ONE very long monologue that follows the sentence plan strictly and flows naturally."
         : "- Use realistic multi-speaker dialogue with natural variation (short quips + longer turns).";
 
       const prompt =
@@ -651,14 +726,16 @@ Return ONLY the plain text tables described above (no HTML or code).`;
     SENTENCE PLAN: ${JSON.stringify(sentencePlan)}  ← EXACT sentences per turn (Spanish; mirror in English if included).
     ${monologueRule}
     - Names from UI.region; if multi-speaker, use exactly UI.numSpeakers distinct names.
-    - Tone="${ui.tone}"; CEFR focus: ${cefrRulesForConvo(ui.level)}
+    - Tone="${ui.tone}".
+    - LEVEL RULES to follow during generation:
+${levelBlock.split('\n').map(l=>'      ' + l).join('\n')}
     - If UI.includeEN === "yes": two columns (English | Español). If "no": only Español.
-    - If UI.addFIB === "yes": add Fill-in-the-Blank section (${Math.max(8, Math.min(30, Math.round(ui.turnsApprox * 0.8)))}) with headers EXACTLY "English" and "Español".
+    - If UI.addFIB === "yes": add Fill-in-the-Blank section (${fibCount}) with headers EXACTLY "English" and "Español".
        English: full sentence; target wrapped in <span class="en">…</span>.
        Español: same sentence but target missing; immediately before blank put the (english) hint: (word) ________ .
     - If UI.showFIBKey === "yes": numbered Answer Key (answers only).
     - If UI.showVocabList === "yes": include "Vocabulary Used" (EN|ES).
-    - Populate EVERY <tbody> with rows; do NOT leave any empty.
+    - Populate EVERY <tbody> with rows; do NOT leave any empty. Return final content only (no placeholders).
   -->
 
   ${Array.from({length: ui.numConvos}).map((_,i)=>`
@@ -739,10 +816,13 @@ Return ONLY the plain text tables described above (no HTML or code).`;
       const numConvos = Math.max(1, Number($('c-numConvos').value)||1);
       const numSpeakers = Math.max(1, Number($('c-numSpeakers').value)||2);
       const includeEN = $('c-includeEN').value;
+      const region = $('c-country').value;
+      const tone = $('c-tone').value;
+      const level = $('c-level').value;
       const sentencePlan = (function(){ const arr=[]; for(let i=0;i<turnsApprox;i++){arr.push(Math.floor(Math.random()*(sentMax-sentMin+1))+sentMin);} return arr; })();
 
       const plain =
-`ROLE: Spanish educator. Generate ${numConvos} ${numSpeakers===1?'monologue(s)':'conversation(s)'} on "${topic}" at Level ${$('c-level').value}. Tone: ${$('c-tone').value}; Region: ${$('c-country').value}.
+`ROLE: Spanish educator. Generate ${numConvos} ${numSpeakers===1?'monologue(s)':'conversation(s)'} on "${topic}" at Level ${level}. Tone: ${tone}; Region: ${region}.
 
 STRUCTURE:
 - Speakers: ${numSpeakers===1?'one (monologue)':'exactly '+numSpeakers+' distinct names typical of the region'}.
@@ -750,17 +830,16 @@ STRUCTURE:
 - Per-Turn sentence plan (Spanish): ${JSON.stringify(sentencePlan)}  ← OBEY EXACTLY.
 - ${includeEN==='yes'?'Two columns: English (left) and Español (right). Mirror the same number of sentences in both languages.':'Single column: Español only.'}
 
+QUALITY & LEVEL (STRICT — use these features in the content):
+${levelRuleText(level)}
+
 OUTPUT (plain text; tab-separated; pasteable to Word/Excel):
 - Header: ${includeEN==='yes'?'English\\tEspañol':'Español'}
 - Then ${turnsApprox} rows per conversation, following the sentence plan per row.
 
-QUALITY & LEVEL:
-- Flow natural and realistic; mix short replies with longer turns where plan allows.
-- CEFR/level focus: ${cefrRulesForConvo($('c-level').value)}
+FIB (for later): choose vocabulary that supports Fill-in-the-Blank with English hints (no need to output FIB here).
 
-FIB (for later): choose vocabulary that would allow Fill-in-the-Blank items with English hints (no need to output FIB now).
-
-Return ONLY the plain text conversation table(s) (no HTML/code).`;
+Return ONLY the plain text table(s) (no HTML/code).`;
       copyText(plain, $('c-status'));
     });
   })();
