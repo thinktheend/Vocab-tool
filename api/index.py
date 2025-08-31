@@ -3,6 +3,10 @@ import json
 from http.server import BaseHTTPRequestHandler
 from openai import OpenAI
 
+# Optional: allow custom endpoints (e.g., Azure/OpenAI-compatible providers)
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")  # e.g. "https://api.openai.com/v1"
+OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
+
 class handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -14,20 +18,42 @@ class handler(BaseHTTPRequestHandler):
         self._send_cors_headers()
         self.end_headers()
 
+    # (Optional) lightweight health check
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "application/json; charset=utf-8")
+        self._send_cors_headers()
+        self.end_headers()
+        self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
+
     def do_POST(self):
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
-            post_data = self.rfile.read(content_length) if content_length else b"{}"
-            data = json.loads(post_data.decode("utf-8"))
-            prompt = data.get("prompt", "").strip()
+            raw = self.rfile.read(content_length) if content_length else b"{}"
+
+            try:
+                data = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                raise ValueError("Invalid JSON in request body.")
+
+            prompt = (data.get("prompt") or "").strip()
             if not prompt:
                 raise ValueError("Missing 'prompt' in request body.")
 
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
-                raise ValueError("Server configuration error: The OPENAI_API_KEY is missing from Vercel env vars.")
+                raise ValueError(
+                    "Server configuration error: OPENAI_API_KEY is not set in Vercel env vars."
+                )
 
-            client = OpenAI(api_key=api_key)
+            # Build the client. Do NOT pass any 'proxies=' kwarg; httpx is pinned in requirements.
+            client = OpenAI(
+                api_key=api_key,
+                base_url=OPENAI_BASE_URL or None,
+                organization=OPENAI_ORG_ID or None,
+            )
+
+            # You can swap the model to gpt-4o-mini for speed/cost if desired.
             completion = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.9,
@@ -47,16 +73,27 @@ class handler(BaseHTTPRequestHandler):
                 ],
             )
 
-            ai_content = completion.choices[0].message.content or ""
+            ai_content = (completion.choices[0].message.content or "").strip()
 
+            # Strip code fences if the model added them anyway.
             if "```" in ai_content:
-                parts = ai_content.split("```", 2)
-                ai_content = parts[-1].strip()
-                first_line, *rest = ai_content.split("\n", 1)
-                if first_line.strip().lower() in {"html", "xml", "markdown"} and rest:
-                    ai_content = rest[0]
+                # Take the first fenced block if present
+                parts = ai_content.split("```")
+                # Try to find the first non-empty fenced content
+                for chunk in parts:
+                    chunk = chunk.strip()
+                    if not chunk:
+                        continue
+                    # Remove an optional language hint on the first line (e.g., "html")
+                    lines = chunk.splitlines()
+                    if lines and len(lines[0]) <= 10 and lines[0].lower() in {"html", "xml", "markdown"}:
+                        chunk = "\n".join(lines[1:]).strip()
+                    ai_content = chunk
+                    break
+                ai_content = ai_content.strip()
 
-            response_payload = {"content": ai_content.strip()}
+            # Build response
+            response_payload = {"content": ai_content}
             self.send_response(200)
             self.send_header("Content-type", "application/json; charset=utf-8")
             self._send_cors_headers()
@@ -64,10 +101,14 @@ class handler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps(response_payload).encode("utf-8"))
 
         except Exception as e:
+            # Log server-side for Vercel live logs
             print(f"AN ERROR OCCURRED: {e}")
             self.send_response(500)
             self.send_header("Content-type", "application/json; charset=utf-8")
             self._send_cors_headers()
             self.end_headers()
-            error_payload = {"error": "An internal server error occurred.", "details": str(e)}
+            error_payload = {
+                "error": "An internal server error occurred.",
+                "details": str(e),
+            }
             self.wfile.write(json.dumps(error_payload).encode("utf-8"))
