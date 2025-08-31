@@ -6,7 +6,7 @@ from openai import OpenAI
 # This handler is compatible with Vercel Python Serverless Functions.
 # Endpoint: /api/index  (expects JSON body: {"prompt": "<full HTML prompt>"} )
 
-MODEL_DEFAULT = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")  # fast & strong; fallback via env if needed
+MODEL_DEFAULT = os.environ.get("OPENAI_MODEL", "gpt-4o")  # fast & strong; fallback via env if needed
 
 class handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
@@ -39,9 +39,9 @@ class handler(BaseHTTPRequestHandler):
             client = OpenAI(api_key=api_key)
             completion = client.chat.completions.create(
                 model=MODEL_DEFAULT,
-                temperature=0.4,
+                temperature=0.9,
                 top_p=0.9,
-                max_tokens=4800,   # allow long monologues & vocab sets
+                max_tokens=10000,   # allow long monologues & vocab sets
                 messages=[
                     {
                         "role": "system",
