@@ -769,7 +769,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         }catch(e){ return ''; }
       };
 
-      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, 4);
+      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, 0);
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
       genBtn.disabled = false;
