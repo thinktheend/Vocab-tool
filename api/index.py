@@ -52,7 +52,7 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            # NOTE: No “enforce constraints” directive here—only follow the embedded contract.
+            # No hard enforcement here; just follow the user's embedded HTML contract.
             completion = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.8,
