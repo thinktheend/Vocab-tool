@@ -4,13 +4,12 @@ import json
 from http.server import BaseHTTPRequestHandler
 from openai import OpenAI
 
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")  # optional
-OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")      # optional
+# Optional environment overrides (leave unset if not needed)
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
+OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
 
-FENCE_RE = re.compile(
-    r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$",
-    re.IGNORECASE
-)
+# Strip accidental code fences from model output
+FENCE_RE = re.compile(r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
 
 class handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
@@ -34,6 +33,7 @@ class handler(BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(content_length) if content_length else b"{}"
+
             try:
                 data = json.loads(raw.decode("utf-8"))
             except json.JSONDecodeError:
@@ -53,11 +53,11 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            # Single, larger pass for speed (your UI validators enforce constraints).
+            # Single pass, strong contract. Plenty of tokens for long outputs.
             completion = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.9,
-                max_tokens=15000,  # allow longer HTML outputs without truncation
+                max_tokens=15000,
                 messages=[
                     {
                         "role": "system",
@@ -65,11 +65,15 @@ class handler(BaseHTTPRequestHandler):
                             "You are an expert FCS assistant. Return ONLY full raw HTML (a complete, valid document). "
                             "STRICTLY follow the embedded contract in the user's HTML prompt: "
                             "• Obey all UI selections/quantities exactly (levels, sections, counts, turns, sentences/turn). "
-                            "• Nouns must include subcategories as header rows in the same table. "
-                            "• Descriptive rows must reference nouns/verbs introduced in this output. "
-                            "• If 1 conversation & 1 speaker, produce a monologue obeying turns/sentences-per-turn. "
-                            "• Level differences must align with CEFR notions included in the prompt. "
-                            "• No empty <tbody>; self-check all constraints BEFORE responding. "
+                            "• Nouns section = noun words/phrases ONLY (no sentences), grouped by subcategory header rows; NO highlighting in Nouns. "
+                            "• Verbs section = full sentences; highlight ONLY the verb (exactly one <span class=\"en\">…</span> in English cell and one <span class=\"es\">…</span> in Spanish cell). "
+                            "• Descriptive section = full sentences; highlight ONLY the descriptive word (exactly one <span class=\"en\">…</span> and one <span class=\"es\">…</span>); "
+                            "  each descriptive sentence must reference nouns/verbs introduced in this output. "
+                            "• The REQUIRED QUANTITY is the number of DISTINCT red-highlighted Spanish terms (<span class=\"es\">…</span>) across Verbs + Descriptive; "
+                            "  this count MUST fall within the level/UI min–max range. Do NOT count Nouns. "
+                            "• If #conversations=1 AND #speakers=1, produce a monologue obeying exact turns/sentences-per-turn and maximize length. "
+                            "• Enforce CEFR-like differences between levels. "
+                            "• No empty <tbody>; SELF-CHECK all constraints BEFORE responding. "
                             "Do NOT add explanations or code fences."
                         ),
                     },
@@ -79,7 +83,6 @@ class handler(BaseHTTPRequestHandler):
 
             ai_content = (completion.choices[0].message.content or "").strip()
 
-            # Safely strip accidental code fences if the model added them.
             m = FENCE_RE.match(ai_content)
             if m:
                 ai_content = m.group(1).strip()
