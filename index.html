@@ -74,7 +74,6 @@
     t.forEach(o=>{o.addEventListener("click",()=>{const n=o.id.replace("tab-","gen-");t.forEach(t=>t.classList.remove("primary")),o.classList.add("primary"),e.forEach(t=>{t.style.display=t.id===n?"block":"none"})})})
   })();
 
-  /* Minimal round-trips for speed */
   async function callAPI(prompt){
     const resp=await fetch(API_URL,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
     const json=await resp.json();
@@ -102,7 +101,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     statusEl.textContent = "Done.";
   }
 
-  /* Copy helpers */
   function copyToClipboard(container,statusEl){
     if(!container.innerHTML || container.innerText.includes("will appear here")){
       statusEl.textContent="Nothing to copy."; return;
@@ -126,7 +124,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     );
   }
 
-  /* Excel export */
   function downloadAsExcel(container,statusEl,filename){
     if(!container.querySelector("table")){statusEl.textContent="No data to export.";return}
     try{
@@ -150,7 +147,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     }catch(e){console.error("Excel Error:",e); statusEl.textContent="Failed to create Excel."}
   }
 
-  /* ===== CEFR-ish level rules (for prompts) ===== */
+  /* ===== CEFR-ish lines for prompts ===== */
   function getLevelRulesLines(level){
     switch(String(level)){
       case '1':
@@ -199,7 +196,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     }
   }
 
-  /* Speech (unchanged) */
+  /* Speech helpers (unchanged) */
   const Speech = {
     voices: [], ready:false, defaultRate:0.85,
     ensureVoices(){ return new Promise(res=>{ if(!('speechSynthesis'in window)){res();return;}
@@ -351,7 +348,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   }
 
   /* =========================
-     Vocabulary (ONLY changes: counting & enforcement of RED (es) in Verbs+Descriptive)
+     Vocabulary (ONLY requested fixes)
      ========================= */
   (function setupVocab(){
     const vocabUI =
@@ -426,17 +423,18 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       return vals.length ? vals : ['nouns','verbs','descriptive','phrases','questions'];
     }
 
-    // Ranges (unchanged UI); we will count ONLY red-highlighted Spanish in Verbs+Descriptive.
+    /* EXACT ranges you provided */
     const presetRanges={
       "1":{min:33,max:55},
       "2":{min:60,max:85},
       "3":{min:90,max:120},
       "4":{min:160,max:220},
       "5":{min:210,max:280},
-      "6":{min:240,max:300}
+      "6":{min:280,max:300}
     };
     const levelTexts={
-      "1":"Level 1—Survival","2":"Level 2—Beginner","3":"Level 3—Intermediate","4":"Level 4—Conversational","5":"Level 5—Fluent","6":"Level 6—Native"
+      "1":"Level 1—Survival","2":"Level 2—Beginner","3":"Level 3—Intermediate",
+      "4":"Level 4—Conversational","5":"Level 5—Fluent","6":"Level 6—Native"
     };
     function updateUI(){
       const isCustom=tmodeEl.value==='custom';
@@ -447,11 +445,11 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         if (+tminEl.value > 300) tminEl.value = 300;
         if (+tmaxEl.value > 300) tmaxEl.value = 300;
       }
-      presetTextEl.textContent=`Preset for ${levelTexts[levelEl.value]}: ${range.min}–${range.max} words. Aim near the upper bound.`;
+      presetTextEl.textContent=`Preset for ${levelTexts[levelEl.value]}: ${range.min}–${range.max} Spanish vocabulary items (red-highlighted), counted across Nouns + Verbs + Descriptive.`;
     }
     tmodeEl.addEventListener('change',updateUI); levelEl.addEventListener('change',updateUI); updateUI();
 
-    /* Instruction text (copy) — wording updated to make it crystal-clear for counting (no UI/output change) */
+    /* Copyable instruction (kept in sync) */
     function buildVocabInstruction(){
       const secs = selectedSections();
       const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
@@ -478,31 +476,21 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       const levelLines = getLevelRulesLines(levelEl.value);
 
       return [
-`You are an expert assistant for the FCS program.`,
+`You are an expert assistant for FCS.`,
 `IMPORTANT: Do NOT return HTML. Produce TWO PARTS (Word + CSV).`,
 `Topic: "${topicEl.value}". Level: "${levelTexts[levelEl.value]}".`,
-`Sections (strict): ${onlySections||'(none)'}.
-- Nouns MUST be grouped into 4+ subcategories (bold header rows) and be NO-SENTENCE noun entries (no punctuation; 1–4 words).`,
-`Total DISTINCT red-highlighted Spanish vocabulary across Verbs + Descriptive: ${minCount}–${maxCount} (TARGET UPPER BOUND). Do NOT count Nouns.`,
+`Sections (strict): ${onlySections||'(none)'}.`,
+`COUNT ENFORCEMENT: The total DISTINCT red-highlighted Spanish terms across Nouns + Verbs + Descriptive MUST be ${minCount}–${maxCount}. Do NOT count Phrases/Questions.`,
+`NOUNS: noun words/phrases only; ≥4 subcategories; Spanish noun must be wrapped as [ES]…[/ES].`,
+`VERBS: full sentences; highlight ONLY the verb — one [EN]…[/EN] and one [ES]…[/ES] per row (third person; “is/are going to + inf …”).`,
+`DESCRIPTIVE: full sentences; highlight ONLY the descriptive word — one [EN]…[/EN] and one [ES]…[/ES] per row; each sentence references nouns/verbs introduced in this output.`,
 `Teacher vocabulary (use when natural): ${teacherIncl}.`,
 `LEVEL RULES:\n- ${levelLines.join('\n- ')}`,
-
-`PART A — READABLE VIEW:
-- Markdown table(s): "English" | "Español".
-- Nouns: noun words/phrases only (no sentences, no highlighting), subcategories as bold header rows.
-- Verbs: full sentences; only the verb is highlighted — exactly one [EN]…[/EN] (English) and one [ES]…[/ES] (Spanish) per row.
-- Descriptive: full sentences; only the descriptive word is highlighted — exactly one [EN]…[/EN] and one [ES]…[/ES] per row; each sentence references a noun/verb introduced in this output.
-- Phrases/Questions unchanged.`,
-
-`PART B — CSV (CSV_EXPORT):
-- Header: "Section","English","Español". Include subcategory header rows for Nouns as separate rows (Section="Nouns").`,
-
-`GLOBAL:
-- No HTML. Alphabetize by English within each section (within subcategories for Nouns).`
+`GLOBAL: Alphabetize by English within each section (within subcategories for Nouns).`
       ].join('\n');
     }
 
-    /* ---- Actual HTML prompt (generation) — ONLY the counting language changed ---- */
+    /* HTML-generation prompt */
     function buildVocabPrompt(){
       const secs = selectedSections();
       const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
@@ -529,26 +517,21 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         `Generate ONLY these sections: ${onlySections}. Do NOT add others.`,
         "Two columns only: English | Español.",
         "Highlighting scope (STRICT):",
-        "• Nouns: NO highlighting at all.",
-        "• Verbs: highlight ONLY the verb — exactly one <span class=\"en\">…</span> in English cell and one <span class=\"es\">…</span> in Spanish cell per row.",
+        "• Nouns: Spanish noun must be wrapped in <span class=\"es\">…</span>. No <span class=\"en\"> in Nouns.",
+        "• Verbs: highlight ONLY the verb — exactly one <span class=\"en\">…</span> (EN cell) and one <span class=\"es\">…</span> (ES cell) per row.",
         "• Descriptive: highlight ONLY the descriptive word — exactly one <span class=\"en\">…</span> and one <span class=\"es\">…</span> per row.",
         "Alphabetize items inside each section by English (inside subcategories for Nouns).",
-        // *** CHANGED COUNT DEFINITION ***
-        `Distinct red-highlighted Spanish vocabulary COUNT (unique <span class="es">…</span>) ACROSS Verbs + Descriptive MUST be ${minCount}–${maxCount} (TARGET UPPER BOUND). Do NOT count Nouns.`,
-        // Nouns (words only)
-        "Nouns: MUST be grouped into 4+ subcategories. Use a single Nouns table; insert header rows BEFORE each subcategory:",
+        `Distinct red-highlighted Spanish COUNT across Nouns + Verbs + Descriptive MUST be ${minCount}–${maxCount} (TARGET UPPER BOUND). Phrases/Questions not counted.`,
+        "Nouns: MUST be grouped into 4+ subcategories. Single Nouns table; insert header rows BEFORE each subcategory:",
         "  <tr class=\"subcat\"><td colspan=\"2\"><strong>[Subcategory EN / Subcategoría ES]</strong></td></tr>",
-        "Noun rows are WORDS/PHRASES ONLY (no sentences, no end punctuation, 1–4 words).",
-        // Verbs
-        "Verbs: rows are full sentences (natural context). Third-person only; ALWAYS “is/are going to + [infinitive] …”. Only the verb is colored.",
-        // Descriptive alignment
-        "Descriptive Words: rows are full sentences; each sentence MUST reference only nouns/verbs introduced in this output; exactly one colored descriptive word.",
+        "Noun rows are WORDS/PHRASES ONLY (no sentences; ≤4 words; no end punctuation).",
+        "Verbs: rows are full sentences; third-person; prefer “is/are going to + [infinitive] …”.",
+        "Descriptive: rows are full sentences; each sentence references nouns/verbs introduced in this output.",
         "Common Phrases: wrap entire cells in <span class=\"full-black\">…</span>.",
         "Common Questions: bold the question row in both languages; answer row normal; both wrapped in <span class=\"full-black\">…</span>; add an empty spacer row after each Q&A.",
         `Include teacher-provided terms if any: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.`,
         "No table may have an empty <tbody>.",
-        // *** CHANGED SELF-CHECK TEXT ***
-        "SELF-CHECK BEFORE RETURNING: requested sections exist & non-empty; Nouns has ≥4 subcategory headers; Noun rows have no highlighting and are not sentences; Verbs rows have exactly one en/es highlight each and are sentences; Descriptive rows have exactly one en/es highlight each and reference introduced nouns/verbs; DISTINCT red-highlighted Spanish count (Verbs+Descriptive) in required range."
+        "SELF-CHECK BEFORE RETURNING: requested sections exist & non-empty; Nouns has ≥4 subcategory headers; Noun rows have exactly one <span class=\"es\">…</span> in Spanish cell and are not sentences; Verbs rows have exactly one en/es highlight each and are sentences; Descriptive rows have exactly one en/es highlight each and reference introduced nouns/verbs; DISTINCT red-highlighted Spanish count (N+V+D) in required range."
       ];
       const levelLines = getLevelRulesLines(levelEl.value);
 
@@ -609,7 +592,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
       const prompt = buildVocabPrompt();
 
-      // ******** VALIDATOR: now counts ONLY red-highlighted Spanish in Verbs + Descriptive ********
+      // VALIDATOR — now counts ALL red <span class="es"> across Nouns + Verbs + Descriptive
       const validator = (html)=>{
         try{
           const doc = new DOMParser().parseFromString(html,'text/html');
@@ -634,7 +617,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
             }
           }
 
-          // Utility to detect sentence-likeness (for verbs/descriptive checks)
           const isSentenceLike = s=>{
             const t=(s||'').trim();
             if (!t) return false;
@@ -643,24 +625,50 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
             return endPunct || words.length >= 6;
           };
 
-          // Gather Nouns (for reference check only; NOT counted)
+          // Noun checks: subcats, not sentences, and Spanish must be red-highlighted exactly once
           let nounsSet = new Set();
           if (includeN){
             const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/^\s*Nouns/i.test(h.textContent||''));
             if (h2){
               const tbody = h2.parentElement.querySelector('tbody');
+              const subcatRows = tbody ? Array.from(tbody.querySelectorAll('tr.subcat')) : [];
+              if (!subcatRows.length || subcatRows.length < 4) problems.push('Nouns must include ≥4 subcategory header rows (.subcat).');
+
               const rows = Array.from(tbody.querySelectorAll('tr')).filter(tr=>!tr.classList.contains('subcat'));
-              rows.forEach(tr=>{
+              rows.forEach((tr,i)=>{
                 const tds = Array.from(tr.querySelectorAll('td'));
                 if (tds.length<2) return;
-                const esText = (tds[1].textContent||'').trim().toLowerCase();
-                if (esText) nounsSet.add(esText);
+                const enHas = tds[0].querySelectorAll('span.en').length;
+                if (enHas>0) problems.push(`Nouns row ${i+1}: do not use <span class="en"> in Nouns.`);
+                const esSpans = tds[1].querySelectorAll('span.es');
+                if (esSpans.length!==1) problems.push(`Nouns row ${i+1}: Spanish cell must have exactly one <span class="es">…</span>.`);
+                const esText = (tds[1].textContent||'').trim();
+                if (!esText) problems.push(`Nouns row ${i+1}: empty Spanish cell.`);
+                const words = esText.replace(/[.,!?…"]/g,'').trim().split(/\s+/);
+                const endPunct = /[.!?…]"?$/.test(esText);
+                if (endPunct || words.length>4){
+                  problems.push(`Nouns row ${i+1}: must be a noun/phrase (no sentences, ≤4 words).`);
+                }
+                const plain = esText.toLowerCase();
+                if (plain) nounsSet.add(plain);
               });
             }
           }
 
-          // Count DISTINCT red-highlighted Spanish words in Verbs + Descriptive ONLY
+          // Collect ALL red-highlighted Spanish terms across N+V+D
           let redSet = new Set();
+
+          if (includeN){
+            const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/^\s*Nouns/i.test(h.textContent||''));
+            if (h2){
+              const rows = Array.from(h2.parentElement.querySelectorAll('tbody tr')).filter(tr=>!tr.classList.contains('subcat'));
+              rows.forEach(tr=>{
+                const esSpan = tr.querySelector('td:nth-child(2) span.es');
+                const w = (esSpan?.textContent||'').trim().toLowerCase();
+                if (w) redSet.add(w);
+              });
+            }
+          }
 
           if (includeV){
             const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/^\s*Verbs/i.test(h.textContent||''));
@@ -698,62 +706,28 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
                 const esWord = (esSpans[0]?.textContent||'').trim().toLowerCase();
                 if (esWord) redSet.add(esWord);
 
-                // Must reference introduced nouns/verbs (use nounsSet + redSet partially)
+                // must reference introduced nouns/verbs
                 const esText = (tds[1].textContent||'').toLowerCase();
-                const introduced = new Set([...nounsSet]); // verbs introduced are the sentences; we accept noun references primarily
                 let hits = false;
-                for (const term of introduced){
-                  if (term && esText.includes(term)){ hits = true; break; }
-                }
+                for (const term of nounsSet){ if (term && esText.includes(term)){ hits = true; break; } }
                 if (!hits){
-                  // Secondary check: see if it at least contains any previously highlighted verb (stem match is hard; use exact)
-                  for (const w of redSet){
-                    if (w && esText.includes(w)){ hits = true; break; }
-                  }
+                  for (const w of redSet){ if (w && esText.includes(w)){ hits = true; break; } }
                 }
-                if (!hits){
-                  problems.push(`Descriptive row ${i+1}: Spanish sentence must reference a noun/verb introduced in this output.`);
-                }
+                if (!hits) problems.push(`Descriptive row ${i+1}: Spanish sentence must reference a noun/verb introduced in this output.`);
               });
             }
           }
 
-          // ENFORCE quantity: ONLY red-highlighted Spanish across Verbs+Descriptive
+          // ENFORCE global count across N+V+D
           const distinctRed = redSet.size;
-          const minMax = {"1":[33,55],"2":[60,85],"3":[90,120],"4":[160,220],"5":[210,280],"6":[240,300]};
           const isCustom = (tmodeEl.value==='custom');
-          const [defMin,defMax] = minMax[levelEl.value];
-          const min = isCustom ? Math.max(1, Math.min(300, Number(tminEl.value)||1)) : defMin;
-          const max = isCustom ? Math.max(min, Math.min(300, Number(tmaxEl.value)||min)) : defMax;
+          const r = {"1":[33,55],"2":[60,85],"3":[90,120],"4":[160,220],"5":[210,280],"6":[280,300]}[levelEl.value];
+          const min = isCustom ? Math.max(1, Math.min(300, Number(tminEl.value)||1)) : r[0];
+          const max = isCustom ? Math.max(min, Math.min(300, Number(tmaxEl.value)||min)) : r[1];
           if (distinctRed < min || distinctRed > max)
-            problems.push(`Red-highlighted Spanish vocab count ${distinctRed} outside required range ${min}–${max} (Verbs+Descriptive only).`);
+            problems.push(`Red-highlighted Spanish vocab count ${distinctRed} outside required range ${min}–${max} (Nouns+Verbs+Descriptive).`);
 
-          // Noun subcategories (>=4) & formatting checks
-          if (includeN){
-            const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/^\s*Nouns/i.test(h.textContent||''));
-            if (h2){
-              const tbody = h2.parentElement.querySelector('tbody');
-              const subcatRows = tbody ? Array.from(tbody.querySelectorAll('tr.subcat')) : [];
-              if (!subcatRows.length || subcatRows.length < 4) problems.push('Nouns must include ≥4 subcategory header rows (.subcat).');
-              const rows = Array.from(tbody.querySelectorAll('tr')).filter(tr=>!tr.classList.contains('subcat'));
-              rows.forEach((tr,i)=>{
-                const tds = Array.from(tr.querySelectorAll('td'));
-                if (tds.length<2) return;
-                if (tds[0].querySelector('span') || tds[1].querySelector('span')){
-                  problems.push(`Nouns row ${i+1}: no highlighting allowed in Nouns.`);
-                }
-                const esText = (tds[1].textContent||'').trim();
-                if (!esText) problems.push(`Nouns row ${i+1}: empty Spanish cell.`);
-                const words = esText.replace(/[.,!?…"]/g,'').trim().split(/\s+/);
-                const endPunct = /[.!?…]"?$/.test(esText);
-                if (endPunct || words.length>4){
-                  problems.push(`Nouns row ${i+1}: must be a noun/phrase (no sentences, ≤4 words).`);
-                }
-              });
-            }
-          }
-
-          // Phrases/Questions wrapping checks
+          // Phrases/Questions wrapping checks unchanged
           function fullBlackOK(h2regex){
             const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>h2regex.test(h.textContent||''));
             if(!h2) return true;
@@ -785,14 +759,12 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 
     promptBtn.addEventListener('click', ()=>{
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
-      const instruction = buildVocabInstruction();
-      copyText(instruction, statusEl);
+      copyText(buildVocabInstruction(), statusEl);
     });
 
     $('v-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     $('v-excel').addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,topicEl.value||'Vocabulary'));
   })();
-
 
   /* =========================
      Conversation
