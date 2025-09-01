@@ -4,11 +4,9 @@ import json
 from http.server import BaseHTTPRequestHandler
 from openai import OpenAI
 
-# Optional environment overrides (leave unset if not needed)
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
 OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
 
-# Strip accidental code fences from model output
 FENCE_RE = re.compile(r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
 
 class handler(BaseHTTPRequestHandler):
@@ -53,7 +51,6 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            # Single pass, strong contract. Plenty of tokens for long outputs.
             completion = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.9,
@@ -62,18 +59,20 @@ class handler(BaseHTTPRequestHandler):
                     {
                         "role": "system",
                         "content": (
-                            "You are an expert FCS assistant. Return ONLY full raw HTML (a complete, valid document). "
-                            "STRICTLY follow the embedded contract in the user's HTML prompt: "
-                            "• Obey all UI selections/quantities exactly (levels, sections, counts, turns, sentences/turn). "
-                            "• Nouns section = noun words/phrases ONLY (no sentences), grouped by subcategory header rows; NO highlighting in Nouns. "
-                            "• Verbs section = full sentences; highlight ONLY the verb (exactly one <span class=\"en\">…</span> in English cell and one <span class=\"es\">…</span> in Spanish cell). "
-                            "• Descriptive section = full sentences; highlight ONLY the descriptive word (exactly one <span class=\"en\">…</span> and one <span class=\"es\">…</span>); "
-                            "  each descriptive sentence must reference nouns/verbs introduced in this output. "
-                            "• The REQUIRED QUANTITY is the number of DISTINCT red-highlighted Spanish terms (<span class=\"es\">…</span>) across Verbs + Descriptive; "
-                            "  this count MUST fall within the level/UI min–max range. Do NOT count Nouns. "
-                            "• If #conversations=1 AND #speakers=1, produce a monologue obeying exact turns/sentences-per-turn and maximize length. "
-                            "• Enforce CEFR-like differences between levels. "
-                            "• No empty <tbody>; SELF-CHECK all constraints BEFORE responding. "
+                            "You are an expert FCS assistant. Return ONLY full raw HTML (a valid document). "
+                            "STRICTLY follow the embedded contract inside the user's HTML prompt. "
+                            "Vocabulary generator rules to enforce: "
+                            "• Nouns section = noun words/phrases ONLY (no sentences), grouped by subcategory header rows; "
+                            "  the Spanish noun word in each row MUST be wrapped in <span class=\"es\">…</span>. "
+                            "  (English nouns are NOT highlighted.) "
+                            "• Verbs section = full sentences; highlight ONLY the verb — exactly one <span class=\"en\">…</span> in the English cell "
+                            "  and one <span class=\"es\">…</span> in the Spanish cell per row. "
+                            "• Descriptive section = full sentences; highlight ONLY the descriptive word — exactly one <span class=\"en\">…</span> "
+                            "  and one <span class=\"es\">…</span> per row; each sentence references nouns/verbs introduced in this output. "
+                            "• REQUIRED QUANTITY = number of DISTINCT red-highlighted Spanish terms (<span class=\"es\">…</span>) across Nouns + Verbs + Descriptive. "
+                            "  This count MUST be within the min–max for the selected level/UI. Phrases/Questions are not counted. "
+                            "• No empty <tbody>; run a self-check BEFORE responding. "
+                            "Conversation generator must obey its own embedded contract but is otherwise unchanged. "
                             "Do NOT add explanations or code fences."
                         ),
                     },
@@ -82,7 +81,6 @@ class handler(BaseHTTPRequestHandler):
             )
 
             ai_content = (completion.choices[0].message.content or "").strip()
-
             m = FENCE_RE.match(ai_content)
             if m:
                 ai_content = m.group(1).strip()
