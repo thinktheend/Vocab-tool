@@ -4,11 +4,14 @@ import json
 from http.server import BaseHTTPRequestHandler
 from openai import OpenAI
 
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
-OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")  # optional
+OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")      # optional
 
-# If a provider wraps HTML in a code fence, unwrap it.
-FENCE_RE = re.compile(r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
+# Strip accidental code fences safely
+FENCE_RE = re.compile(
+    r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$",
+    re.IGNORECASE
+)
 
 class handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
@@ -32,7 +35,6 @@ class handler(BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(content_length) if content_length else b"{}"
-
             try:
                 data = json.loads(raw.decode("utf-8"))
             except json.JSONDecodeError:
@@ -52,25 +54,25 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            # No hard enforcement here; just follow the user's embedded HTML contract.
+            # Single bigger pass for speed; your frontend validators handle strictness.
             completion = client.chat.completions.create(
                 model="gpt-4o",
-                temperature=0.8,
-                max_tokens=12000,
+                temperature=0.9,
+                max_tokens=8000,  # room for long monologues & large vocab
                 messages=[
                     {
                         "role": "system",
                         "content": (
-                            "You are an expert FCS assistant. Return ONLY full raw HTML (a valid document). "
-                            "Strictly follow the embedded contract inside the user's HTML prompt. "
-                            "Vocabulary generator expectations (do not change UI/format): "
-                            "• Nouns = noun words/phrases (no sentences) with subcategory header rows; "
-                            "  the Spanish noun in each row is wrapped in <span class=\"es\">…</span>. "
-                            "• Verbs = full sentences; highlight only the verb: exactly one <span class=\"en\">…</span> "
-                            "  in the English cell and one <span class=\"es\">…</span> in the Spanish cell. "
-                            "• Descriptive = full sentences; highlight only the descriptive word: exactly one "
-                            "<span class=\"en\">…</span> and one <span class=\"es\">…</span>; each sentence references "
-                            "nouns/verbs introduced in this output. "
+                            "You are an expert FCS assistant. Return ONLY full raw HTML (a complete, valid document). "
+                            "STRICTLY follow the embedded contract in the user's HTML prompt: "
+                            "• Obey all UI selections/quantities exactly (levels, sections, counts, turns, sentences/turn). "
+                            "• Nouns must include subcategories as header rows in the same table and be noun words only. "
+                            "• Verbs: only the verb is highlighted (one <span class=\"en\"> and one <span class=\"es\"> per row). "
+                            "• Descriptive: only the single descriptive word is highlighted (one <span class=\"en\"> and one <span class=\"es\"> per row). "
+                            "• Descriptive rows must reference nouns/verbs introduced in this output. "
+                            "• If 1 conversation & 1 speaker, produce a monologue obeying turns/sentences-per-turn and prefer maximum length. "
+                            "• Level differences must align with CEFR notions included in the prompt. "
+                            "• No empty <tbody>; self-check all constraints BEFORE responding. "
                             "Do NOT add explanations or code fences."
                         ),
                     },
@@ -79,6 +81,7 @@ class handler(BaseHTTPRequestHandler):
             )
 
             ai_content = (completion.choices[0].message.content or "").strip()
+
             m = FENCE_RE.match(ai_content)
             if m:
                 ai_content = m.group(1).strip()
