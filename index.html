@@ -80,7 +80,9 @@
     if(!resp.ok) throw new Error(json.details||json.error||"Unknown server error.");
     return json.content;
   }
-  async function generateResultWithRetries(basePrompt, button, statusEl, outputEl, validator, maxRetries=2){
+
+  // more retries to hit the target count; still fast enough
+  async function generateResultWithRetries(basePrompt, button, statusEl, outputEl, validator, maxRetries=4){
     button.disabled=true;
     statusEl.textContent="Generating...";
     outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
@@ -93,6 +95,8 @@
 
 <!-- VIOLATION NOTICE:
 ${failMsg}
+If the red-highlighted Spanish vocab count is below minimum, ADD unique items (prefer Nouns spread across ALL subcategories, then Verbs, then Descriptive)
+until the DISTINCT red-highlighted count is inside the required range. Do not repeat highlighted Spanish terms.
 Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS class names or document structure.
 -->`;
       html = await callAPI(retryPrompt);
@@ -348,7 +352,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
   }
 
   /* =========================
-     Vocabulary (ONLY requested fixes)
+     Vocabulary (ONLY the requested fixes)
      ========================= */
   (function setupVocab(){
     const vocabUI =
@@ -423,7 +427,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       return vals.length ? vals : ['nouns','verbs','descriptive','phrases','questions'];
     }
 
-    /* EXACT ranges you provided */
     const presetRanges={
       "1":{min:33,max:55},
       "2":{min:60,max:85},
@@ -449,7 +452,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     }
     tmodeEl.addEventListener('change',updateUI); levelEl.addEventListener('change',updateUI); updateUI();
 
-    /* Copyable instruction (kept in sync) */
+    /* Copyable instruction — removed [EN]/[ES] bracket tokens */
     function buildVocabInstruction(){
       const secs = selectedSections();
       const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
@@ -480,10 +483,10 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 `IMPORTANT: Do NOT return HTML. Produce TWO PARTS (Word + CSV).`,
 `Topic: "${topicEl.value}". Level: "${levelTexts[levelEl.value]}".`,
 `Sections (strict): ${onlySections||'(none)'}.`,
-`COUNT ENFORCEMENT: The total DISTINCT red-highlighted Spanish terms across Nouns + Verbs + Descriptive MUST be ${minCount}–${maxCount}. Do NOT count Phrases/Questions.`,
-`NOUNS: noun words/phrases only; ≥4 subcategories; Spanish noun must be wrapped as [ES]…[/ES].`,
-`VERBS: full sentences; highlight ONLY the verb — one [EN]…[/EN] and one [ES]…[/ES] per row (third person; “is/are going to + inf …”).`,
-`DESCRIPTIVE: full sentences; highlight ONLY the descriptive word — one [EN]…[/EN] and one [ES]…[/ES] per row; each sentence references nouns/verbs introduced in this output.`,
+`COUNT ENFORCEMENT: The total DISTINCT Spanish vocabulary (the Spanish terms you clearly mark in each line) across Nouns + Verbs + Descriptive MUST be ${minCount}–${maxCount}. Do NOT count Phrases/Questions.`,
+`NOUNS: noun words/phrases only; ≥4 subcategories; make the Spanish noun clearly the target term.`,
+`VERBS: full sentences; highlight ONLY the verb concept — English verb and its Spanish counterpart are the focus.`,
+`DESCRIPTIVE: full sentences; highlight ONLY the descriptive word concept — English descriptive term and its Spanish counterpart are the focus; each sentence references nouns/verbs introduced in this output.`,
 `Teacher vocabulary (use when natural): ${teacherIncl}.`,
 `LEVEL RULES:\n- ${levelLines.join('\n- ')}`,
 `GLOBAL: Alphabetize by English within each section (within subcategories for Nouns).`
@@ -505,6 +508,11 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         minCount = r.min; maxCount = r.max;
       }
 
+      // soft per-section minimums to encourage sufficient quantity (still must obey distinct-count range)
+      const nounsMin = Math.max(8, Math.floor(minCount*0.40));
+      const verbsMin = Math.max(8, Math.floor(minCount*0.35));
+      const descMin  = Math.max(6, Math.floor(minCount*0.25));
+
       const onlySections = [
         includeN?'Nouns':null,
         includeV?'Verbs':null,
@@ -521,7 +529,9 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         "• Verbs: highlight ONLY the verb — exactly one <span class=\"en\">…</span> (EN cell) and one <span class=\"es\">…</span> (ES cell) per row.",
         "• Descriptive: highlight ONLY the descriptive word — exactly one <span class=\"en\">…</span> and one <span class=\"es\">…</span> per row.",
         "Alphabetize items inside each section by English (inside subcategories for Nouns).",
-        `Distinct red-highlighted Spanish COUNT across Nouns + Verbs + Descriptive MUST be ${minCount}–${maxCount} (TARGET UPPER BOUND). Phrases/Questions not counted.`,
+        `Distinct red-highlighted Spanish COUNT across Nouns + Verbs + Descriptive MUST be ${minCount}–${maxCount} (TARGET UPPER BOUND).`,
+        `To guarantee the count, include at least ${nounsMin} noun rows (unique highlighted terms), ${verbsMin} verb sentences (unique highlighted verbs), and ${descMin} descriptive sentences (unique highlighted adjectives/adverbs).`,
+        "Avoid repeating highlighted Spanish terms across the three sections; if a term would repeat, use a different synonym or a different verb/adjective.",
         "Nouns: MUST be grouped into 4+ subcategories. Single Nouns table; insert header rows BEFORE each subcategory:",
         "  <tr class=\"subcat\"><td colspan=\"2\"><strong>[Subcategory EN / Subcategoría ES]</strong></td></tr>",
         "Noun rows are WORDS/PHRASES ONLY (no sentences; ≤4 words; no end punctuation).",
@@ -531,7 +541,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         "Common Questions: bold the question row in both languages; answer row normal; both wrapped in <span class=\"full-black\">…</span>; add an empty spacer row after each Q&A.",
         `Include teacher-provided terms if any: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.`,
         "No table may have an empty <tbody>.",
-        "SELF-CHECK BEFORE RETURNING: requested sections exist & non-empty; Nouns has ≥4 subcategory headers; Noun rows have exactly one <span class=\"es\">…</span> in Spanish cell and are not sentences; Verbs rows have exactly one en/es highlight each and are sentences; Descriptive rows have exactly one en/es highlight each and reference introduced nouns/verbs; DISTINCT red-highlighted Spanish count (N+V+D) in required range."
+        "SELF-CHECK BEFORE RETURNING: requested sections exist & non-empty; Nouns has ≥4 subcategory headers; Noun rows have exactly one <span class=\"es\">…</span> in Spanish cell and are not sentences; Verbs rows have exactly one en/es highlight each and are sentences; Descriptive rows have exactly one en/es highlight each and reference introduced nouns/verbs; DISTINCT red-highlighted Spanish count (N+V+D) in required range (if short, expand with more UNIQUE rows)."
       ];
       const levelLines = getLevelRulesLines(levelEl.value);
 
@@ -592,7 +602,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
       const prompt = buildVocabPrompt();
 
-      // VALIDATOR — now counts ALL red <span class="es"> across Nouns + Verbs + Descriptive
+      // VALIDATOR — counts DISTINCT red <span class="es"> across Nouns + Verbs + Descriptive
       const validator = (html)=>{
         try{
           const doc = new DOMParser().parseFromString(html,'text/html');
@@ -718,14 +728,22 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
             }
           }
 
-          // ENFORCE global count across N+V+D
+          // ENFORCE global distinct count across N+V+D
           const distinctRed = redSet.size;
+
+          const range = {"1":[33,55],"2":[60,85],"3":[90,120],"4":[160,220],"5":[210,280],"6":[280,300]}[levelEl.value];
           const isCustom = (tmodeEl.value==='custom');
-          const r = {"1":[33,55],"2":[60,85],"3":[90,120],"4":[160,220],"5":[210,280],"6":[280,300]}[levelEl.value];
-          const min = isCustom ? Math.max(1, Math.min(300, Number(tminEl.value)||1)) : r[0];
-          const max = isCustom ? Math.max(min, Math.min(300, Number(tmaxEl.value)||min)) : r[1];
-          if (distinctRed < min || distinctRed > max)
-            problems.push(`Red-highlighted Spanish vocab count ${distinctRed} outside required range ${min}–${max} (Nouns+Verbs+Descriptive).`);
+          const min = isCustom ? Math.max(1, Math.min(300, Number(tminEl.value)||1)) : range[0];
+          const max = isCustom ? Math.max(min, Math.min(300, Number(tmaxEl.value)||min)) : range[1];
+
+          if (distinctRed < min || distinctRed > max){
+            const deficit = distinctRed < min ? (min - distinctRed) : 0;
+            if (deficit > 0){
+              problems.push(`Red-highlighted Spanish vocab count ${distinctRed} is BELOW the required ${min}–${max}. You are short by ${deficit}. Add at least ${deficit} NEW and UNIQUE red-highlighted Spanish terms, prioritizing Nouns across ALL subcategories, then Verbs, then Descriptive. Avoid repeating highlighted terms.`);
+            } else {
+              problems.push(`Red-highlighted Spanish vocab count ${distinctRed} is ABOVE the maximum ${max}. Reduce by removing less important items while keeping all rules.`);
+            }
+          }
 
           // Phrases/Questions wrapping checks unchanged
           function fullBlackOK(h2regex){
@@ -751,13 +769,14 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         }catch(e){ return ''; }
       };
 
-      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, 2);
+      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, 4);
       await Speech.ensureVoices();
       addPerLineTTS(outputEl);
       genBtn.disabled = false;
     });
 
-    promptBtn.addEventListener('click', ()=>{
+    // Copy the external (non-HTML) instruction WITHOUT [EN]/[ES] tokens
+    $('v-prompt').addEventListener('click', ()=>{
       if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
       copyText(buildVocabInstruction(), statusEl);
     });
@@ -765,7 +784,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     $('v-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     $('v-excel').addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,topicEl.value||'Vocabulary'));
   })();
-
   /* =========================
      Conversation
      ========================= */
