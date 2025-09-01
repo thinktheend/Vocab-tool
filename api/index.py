@@ -58,7 +58,7 @@ class handler(BaseHTTPRequestHandler):
             completion = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.9,
-                max_tokens=120000,  # room for long monologues & large vocab
+                max_tokens=12000,  # room for long monologues & large vocab
                 messages=[
                     {
                         "role": "system",
