@@ -54,7 +54,7 @@ class handler(BaseHTTPRequestHandler):
             completion = client.chat.completions.create(
                 model="gpt-4o",
                 temperature=0.9,
-                max_tokens=15000,
+                max_tokens=12000,
                 messages=[
                     {
                         "role": "system",
@@ -64,15 +64,16 @@ class handler(BaseHTTPRequestHandler):
                             "Vocabulary generator rules to enforce: "
                             "• Nouns section = noun words/phrases ONLY (no sentences), grouped by subcategory header rows; "
                             "  the Spanish noun word in each row MUST be wrapped in <span class=\"es\">…</span>. "
-                            "  (English nouns are NOT highlighted.) "
                             "• Verbs section = full sentences; highlight ONLY the verb — exactly one <span class=\"en\">…</span> in the English cell "
                             "  and one <span class=\"es\">…</span> in the Spanish cell per row. "
                             "• Descriptive section = full sentences; highlight ONLY the descriptive word — exactly one <span class=\"en\">…</span> "
                             "  and one <span class=\"es\">…</span> per row; each sentence references nouns/verbs introduced in this output. "
                             "• REQUIRED QUANTITY = number of DISTINCT red-highlighted Spanish terms (<span class=\"es\">…</span>) across Nouns + Verbs + Descriptive. "
-                            "  This count MUST be within the min–max for the selected level/UI. Phrases/Questions are not counted. "
-                            "• No empty <tbody>; run a self-check BEFORE responding. "
-                            "Conversation generator must obey its own embedded contract but is otherwise unchanged. "
+                            "  This count MUST be within the min–max for the selected level/UI. If short, EXPAND by adding unique items until inside range "
+                            "(prefer adding to Nouns distributed across subcategories, then Verbs, then Descriptive). "
+                            "• Avoid repeating highlighted Spanish terms across these three sections unless unavoidable. "
+                            "• Run a self-check BEFORE responding. "
+                            "Conversation generator is unchanged; do not alter it. "
                             "Do NOT add explanations or code fences."
                         ),
                     },
