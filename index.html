@@ -81,15 +81,28 @@
     return json.content;
   }
 
-  // Simple generator; NO validator, NO retries (per your request).
-  async function generateSimple(basePrompt, button, statusEl, outputEl){
+  // more retries to hit the target count; still fast enough
+  async function generateResultWithRetries(basePrompt, button, statusEl, outputEl, validator, maxRetries=4){
     button.disabled=true;
     statusEl.textContent="Generating...";
     outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
-    const html = await callAPI(basePrompt);
+    let html = await callAPI(basePrompt);
+    for (let attempt=0; attempt<maxRetries; attempt++){
+      const failMsg = validator ? validator(html) : "";
+      if (!failMsg) break;
+      statusEl.textContent = `Retrying to enforce constraints… (${attempt+1}/${maxRetries})`;
+      const retryPrompt = basePrompt + `
+
+<!-- VIOLATION NOTICE:
+${failMsg}
+If the red-highlighted Spanish vocab count is below minimum, ADD unique items (prefer Nouns spread across ALL subcategories, then Verbs, then Descriptive)
+until the DISTINCT red-highlighted count is inside the required range. Do not repeat highlighted Spanish terms.
+Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS class names or document structure.
+-->`;
+      html = await callAPI(retryPrompt);
+    }
     outputEl.innerHTML = html;
     statusEl.textContent = "Done.";
-    button.disabled=false;
   }
 
   function copyToClipboard(container,statusEl){
@@ -138,7 +151,7 @@
     }catch(e){console.error("Excel Error:",e); statusEl.textContent="Failed to create Excel."}
   }
 
-  /* ===== CEFR-ish lines for prompts (unchanged) ===== */
+  /* ===== CEFR-ish lines for prompts ===== */
   function getLevelRulesLines(level){
     switch(String(level)){
       case '1':
@@ -327,20 +340,19 @@
         window.speechSynthesis.speak(u);
         state='playing';
       }
-      const btnPlay = ctrl.querySelector('button.primary');
-      btnPlay.addEventListener('click', async ()=>{ await Speech.ensureVoices();
+      playBtn.addEventListener('click', async ()=>{ await Speech.ensureVoices();
         if(state==='stopped'){ idx=0; speakCurrent(); }
         else if(state==='playing'){ window.speechSynthesis.pause(); state='paused'; }
         else if(state==='paused'){ window.speechSynthesis.resume(); state='playing'; }
       });
-      ctrl.children[1].addEventListener('click', ()=>{ if(state==='playing'){ window.speechSynthesis.pause(); state='paused'; }});
-      ctrl.children[2].addEventListener('click', ()=>{ if(state==='paused'){ window.speechSynthesis.resume(); state='playing'; }});
-      ctrl.children[3].addEventListener('click', ()=>{ Speech.stop(); state='stopped'; idx=0; });
+      pauseBtn.addEventListener('click', ()=>{ if(state==='playing'){ window.speechSynthesis.pause(); state='paused'; }});
+      resumeBtn.addEventListener('click', ()=>{ if(state==='paused'){ window.speechSynthesis.resume(); state='playing'; }});
+      stopBtn.addEventListener('click', ()=>{ Speech.stop(); state='stopped'; idx=0; });
     });
   }
 
   /* =========================
-     Vocabulary
+     Vocabulary (ONLY the requested fixes)
      ========================= */
   (function setupVocab(){
     const vocabUI =
@@ -436,11 +448,11 @@
         if (+tminEl.value > 300) tminEl.value = 300;
         if (+tmaxEl.value > 300) tmaxEl.value = 300;
       }
-      presetTextEl.textContent=`Preset for ${levelTexts[levelEl.value]}: ${range.min}–${range.max} (Spanish red-highlighted items across Nouns, Verbs, Descriptive).`;
+      presetTextEl.textContent=`Preset for ${levelTexts[levelEl.value]}: ${range.min}–${range.max} Spanish vocabulary items (red-highlighted), counted across Nouns + Verbs + Descriptive.`;
     }
     tmodeEl.addEventListener('change',updateUI); levelEl.addEventListener('change',updateUI); updateUI();
 
-    /* ---------- Copyable instructions (updated to mention TWO COLUMNS) ---------- */
+    /* Copyable instruction — removed [EN]/[ES] bracket tokens */
     function buildVocabInstruction(){
       const secs = selectedSections();
       const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
@@ -469,23 +481,37 @@
       return [
 `You are an expert assistant for FCS.`,
 `IMPORTANT: Do NOT return HTML. Produce TWO PARTS (Word + CSV).`,
-`Make the output for each section as a TWO-COLUMN table with headers exactly: "English" and "Español".`,
 `Topic: "${topicEl.value}". Level: "${levelTexts[levelEl.value]}".`,
 `Sections (strict): ${onlySections||'(none)'}.`,
-`NOUNS: noun words/phrases only; 4+ subcategories; Spanish noun is the target term.`,
-`VERBS: full sentences; highlight only the verb concept in each language.`,
-`DESCRIPTIVE: full sentences; highlight only the descriptive word; each sentence references nouns/verbs introduced in this output.`,
+`COUNT ENFORCEMENT: The total DISTINCT Spanish vocabulary (the Spanish terms you clearly mark in each line) across Nouns + Verbs + Descriptive MUST be ${minCount}–${maxCount}. Do NOT count Phrases/Questions.`,
+`NOUNS: noun words/phrases only; ≥4 subcategories; make the Spanish noun clearly the target term.`,
+`VERBS: full sentences; highlight ONLY the verb concept — English verb and its Spanish counterpart are the focus.`,
+`DESCRIPTIVE: full sentences; highlight ONLY the descriptive word concept — English descriptive term and its Spanish counterpart are the focus; each sentence references nouns/verbs introduced in this output.`,
 `Teacher vocabulary (use when natural): ${teacherIncl}.`,
 `LEVEL RULES:\n- ${levelLines.join('\n- ')}`,
 `GLOBAL: Alphabetize by English within each section (within subcategories for Nouns).`
       ].join('\n');
     }
 
-    /* ---- Build actual HTML prompt (app generation) ---- */
+    /* HTML-generation prompt */
     function buildVocabPrompt(){
       const secs = selectedSections();
       const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
             includeP = secs.includes('phrases'), includeQ = secs.includes('questions');
+
+      let minCount, maxCount;
+      if (tmodeEl.value==='custom'){
+        minCount = Math.max(1, Math.min(300, Number(tminEl.value) || 1));
+        maxCount = Math.max(minCount, Math.min(300, Number(tmaxEl.value) || minCount));
+      } else {
+        const r = presetRanges[levelEl.value];
+        minCount = r.min; maxCount = r.max;
+      }
+
+      // soft per-section minimums to encourage sufficient quantity (still must obey distinct-count range)
+      const nounsMin = Math.max(8, Math.floor(minCount*0.40));
+      const verbsMin = Math.max(8, Math.floor(minCount*0.35));
+      const descMin  = Math.max(6, Math.floor(minCount*0.25));
 
       const onlySections = [
         includeN?'Nouns':null,
@@ -498,11 +524,14 @@
       const rules = [
         `Generate ONLY these sections: ${onlySections}. Do NOT add others.`,
         "Two columns only: English | Español.",
-        "Highlighting scope:",
+        "Highlighting scope (STRICT):",
         "• Nouns: Spanish noun must be wrapped in <span class=\"es\">…</span>. No <span class=\"en\"> in Nouns.",
-        "• Verbs: highlight only the verb — exactly one <span class=\"en\">…</span> (EN cell) and one <span class=\"es\">…</span> (ES cell) per row.",
-        "• Descriptive: highlight only the descriptive word — exactly one <span class=\"en\">…</span> and one <span class=\"es\">…</span> per row.",
+        "• Verbs: highlight ONLY the verb — exactly one <span class=\"en\">…</span> (EN cell) and one <span class=\"es\">…</span> (ES cell) per row.",
+        "• Descriptive: highlight ONLY the descriptive word — exactly one <span class=\"en\">…</span> and one <span class=\"es\">…</span> per row.",
         "Alphabetize items inside each section by English (inside subcategories for Nouns).",
+        `Distinct red-highlighted Spanish COUNT across Nouns + Verbs + Descriptive MUST be ${minCount}–${maxCount} (TARGET UPPER BOUND).`,
+        `To guarantee the count, include at least ${nounsMin} noun rows (unique highlighted terms), ${verbsMin} verb sentences (unique highlighted verbs), and ${descMin} descriptive sentences (unique highlighted adjectives/adverbs).`,
+        "Avoid repeating highlighted Spanish terms across the three sections; if a term would repeat, use a different synonym or a different verb/adjective.",
         "Nouns: MUST be grouped into 4+ subcategories. Single Nouns table; insert header rows BEFORE each subcategory:",
         "  <tr class=\"subcat\"><td colspan=\"2\"><strong>[Subcategory EN / Subcategoría ES]</strong></td></tr>",
         "Noun rows are WORDS/PHRASES ONLY (no sentences; ≤4 words; no end punctuation).",
@@ -511,7 +540,8 @@
         "Common Phrases: wrap entire cells in <span class=\"full-black\">…</span>.",
         "Common Questions: bold the question row in both languages; answer row normal; both wrapped in <span class=\"full-black\">…</span>; add an empty spacer row after each Q&A.",
         `Include teacher-provided terms if any: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.`,
-        "No table may have an empty <tbody>."
+        "No table may have an empty <tbody>.",
+        "SELF-CHECK BEFORE RETURNING: requested sections exist & non-empty; Nouns has ≥4 subcategory headers; Noun rows have exactly one <span class=\"es\">…</span> in Spanish cell and are not sentences; Verbs rows have exactly one en/es highlight each and are sentences; Descriptive rows have exactly one en/es highlight each and reference introduced nouns/verbs; DISTINCT red-highlighted Spanish count (N+V+D) in required range (if short, expand with more UNIQUE rows)."
       ];
       const levelLines = getLevelRulesLines(levelEl.value);
 
@@ -557,7 +587,7 @@
   <h1>Vocabulary: ${topicEl.value} — ${levelTexts[levelEl.value]}</h1>
   <div class="legend"><span class="en">English blue</span> | <span class="es">Spanish red</span> (phrases & questions: full black)</div>
 
-  <!-- RULES:
+  <!-- STRICT RULES:
     ${rules.map((r,i)=>`${i+1}) ${r}`).join('\n    ')}
     LEVEL RULES:
     - ${levelLines.join('\n    - ')}
@@ -568,21 +598,191 @@
       return prompt;
     }
 
-    $('v-gen').addEventListener('click', async ()=>{
-      if(!topicEl.value.trim()){ $('v-status').textContent="Please enter a topic."; return; }
+    genBtn.addEventListener('click', async ()=>{
+      if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
       const prompt = buildVocabPrompt();
-      await generateSimple(prompt, $('v-gen'), $('v-status'), $('v-output'));
+
+      // VALIDATOR — counts DISTINCT red <span class="es"> across Nouns + Verbs + Descriptive
+      const validator = (html)=>{
+        try{
+          const doc = new DOMParser().parseFromString(html,'text/html');
+          const secs = selectedSections();
+          const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'), includeD = secs.includes('descriptive'),
+                includeP = secs.includes('phrases'), includeQ = secs.includes('questions');
+          const want = { nouns:includeN, verbs:includeV, descriptive:includeD, phrases:includeP, questions:includeQ };
+          const nameToRegex = {
+            nouns:/^\s*Nouns/i, verbs:/^\s*Verbs/i, descriptive:/^\s*Descriptive/i,
+            phrases:/^\s*Common Phrases/i, questions:/^\s*Common Questions/i
+          };
+          const problems = [];
+
+          for (const key of Object.keys(want)){
+            const sec = Array.from(doc.querySelectorAll('.section h2')).find(h=>nameToRegex[key].test(h.textContent||''));
+            if (want[key]) {
+              if(!sec) { problems.push(`missing required section: ${key}`); continue; }
+              const tbody = sec.parentElement.querySelector('tbody');
+              if(!tbody || !tbody.querySelector('tr')) problems.push(`empty section: ${key}`);
+            } else {
+              if (sec) problems.push(`forbidden extra section present: ${key}`);
+            }
+          }
+
+          const isSentenceLike = s=>{
+            const t=(s||'').trim();
+            if (!t) return false;
+            const endPunct = /[.!?…]"?$/.test(t);
+            const words = t.replace(/\s+/g,' ').split(' ');
+            return endPunct || words.length >= 6;
+          };
+
+          // Noun checks: subcats, not sentences, and Spanish must be red-highlighted exactly once
+          let nounsSet = new Set();
+          if (includeN){
+            const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/^\s*Nouns/i.test(h.textContent||''));
+            if (h2){
+              const tbody = h2.parentElement.querySelector('tbody');
+              const subcatRows = tbody ? Array.from(tbody.querySelectorAll('tr.subcat')) : [];
+              if (!subcatRows.length || subcatRows.length < 4) problems.push('Nouns must include ≥4 subcategory header rows (.subcat).');
+
+              const rows = Array.from(tbody.querySelectorAll('tr')).filter(tr=>!tr.classList.contains('subcat'));
+              rows.forEach((tr,i)=>{
+                const tds = Array.from(tr.querySelectorAll('td'));
+                if (tds.length<2) return;
+                const enHas = tds[0].querySelectorAll('span.en').length;
+                if (enHas>0) problems.push(`Nouns row ${i+1}: do not use <span class="en"> in Nouns.`);
+                const esSpans = tds[1].querySelectorAll('span.es');
+                if (esSpans.length!==1) problems.push(`Nouns row ${i+1}: Spanish cell must have exactly one <span class="es">…</span>.`);
+                const esText = (tds[1].textContent||'').trim();
+                if (!esText) problems.push(`Nouns row ${i+1}: empty Spanish cell.`);
+                const words = esText.replace(/[.,!?…"]/g,'').trim().split(/\s+/);
+                const endPunct = /[.!?…]"?$/.test(esText);
+                if (endPunct || words.length>4){
+                  problems.push(`Nouns row ${i+1}: must be a noun/phrase (no sentences, ≤4 words).`);
+                }
+                const plain = esText.toLowerCase();
+                if (plain) nounsSet.add(plain);
+              });
+            }
+          }
+
+          // Collect ALL red-highlighted Spanish terms across N+V+D
+          let redSet = new Set();
+
+          if (includeN){
+            const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/^\s*Nouns/i.test(h.textContent||''));
+            if (h2){
+              const rows = Array.from(h2.parentElement.querySelectorAll('tbody tr')).filter(tr=>!tr.classList.contains('subcat'));
+              rows.forEach(tr=>{
+                const esSpan = tr.querySelector('td:nth-child(2) span.es');
+                const w = (esSpan?.textContent||'').trim().toLowerCase();
+                if (w) redSet.add(w);
+              });
+            }
+          }
+
+          if (includeV){
+            const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/^\s*Verbs/i.test(h.textContent||''));
+            if (h2){
+              const tbody = h2.parentElement.querySelector('tbody');
+              const rows = Array.from(tbody.querySelectorAll('tr'));
+              rows.forEach((tr,i)=>{
+                const tds = Array.from(tr.querySelectorAll('td'));
+                if (tds.length<2) return;
+                const enSpans = tds[0].querySelectorAll('span.en');
+                const esSpans = tds[1].querySelectorAll('span.es');
+                if (enSpans.length !== 1 || esSpans.length !== 1){
+                  problems.push(`Verbs row ${i+1}: must highlight ONLY the verb (exactly one <span class="en"> and one <span class="es">).`);
+                }
+                const esWord = (esSpans[0]?.textContent||'').trim().toLowerCase();
+                if (esWord) redSet.add(esWord);
+                const esText = (tds[1].textContent||'').trim();
+                if (!isSentenceLike(esText)) problems.push(`Verbs row ${i+1}: must be a full sentence.`);
+              });
+            }
+          }
+
+          if (includeD){
+            const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>/^\s*Descriptive/i.test(h.textContent||''));
+            if (h2){
+              const rows = Array.from(h2.parentElement.querySelectorAll('tbody tr'));
+              rows.forEach((tr, i)=>{
+                const tds = Array.from(tr.querySelectorAll('td'));
+                if (tds.length<2) return;
+                const enCount = tds[0].querySelectorAll('span.en').length;
+                const esSpans = tds[1].querySelectorAll('span.es');
+                if (enCount !== 1 || esSpans.length !== 1){
+                  problems.push(`Descriptive row ${i+1}: must color ONLY the descriptive word (exactly one <span class="en"> and one <span class="es">).`);
+                }
+                const esWord = (esSpans[0]?.textContent||'').trim().toLowerCase();
+                if (esWord) redSet.add(esWord);
+
+                // must reference introduced nouns/verbs
+                const esText = (tds[1].textContent||'').toLowerCase();
+                let hits = false;
+                for (const term of nounsSet){ if (term && esText.includes(term)){ hits = true; break; } }
+                if (!hits){
+                  for (const w of redSet){ if (w && esText.includes(w)){ hits = true; break; } }
+                }
+                if (!hits) problems.push(`Descriptive row ${i+1}: Spanish sentence must reference a noun/verb introduced in this output.`);
+              });
+            }
+          }
+
+          // ENFORCE global distinct count across N+V+D
+          const distinctRed = redSet.size;
+
+          const range = {"1":[33,55],"2":[60,85],"3":[90,120],"4":[160,220],"5":[210,280],"6":[280,300]}[levelEl.value];
+          const isCustom = (tmodeEl.value==='custom');
+          const min = isCustom ? Math.max(1, Math.min(300, Number(tminEl.value)||1)) : range[0];
+          const max = isCustom ? Math.max(min, Math.min(300, Number(tmaxEl.value)||min)) : range[1];
+
+          if (distinctRed < min || distinctRed > max){
+            const deficit = distinctRed < min ? (min - distinctRed) : 0;
+            if (deficit > 0){
+              problems.push(`Red-highlighted Spanish vocab count ${distinctRed} is BELOW the required ${min}–${max}. You are short by ${deficit}. Add at least ${deficit} NEW and UNIQUE red-highlighted Spanish terms, prioritizing Nouns across ALL subcategories, then Verbs, then Descriptive. Avoid repeating highlighted terms.`);
+            } else {
+              problems.push(`Red-highlighted Spanish vocab count ${distinctRed} is ABOVE the maximum ${max}. Reduce by removing less important items while keeping all rules.`);
+            }
+          }
+
+          // Phrases/Questions wrapping checks unchanged
+          function fullBlackOK(h2regex){
+            const h2 = Array.from(doc.querySelectorAll('.section h2')).find(h=>h2regex.test(h.textContent||''));
+            if(!h2) return true;
+            const rows = Array.from(h2.parentElement.querySelectorAll('tbody tr'));
+            if(!rows.length) return false;
+            return rows.every(tr=>{
+              const tds=Array.from(tr.querySelectorAll('td'));
+              if(tds.length<2) return true;
+              const [en, es] = tds;
+              const enSpan = en.querySelector('span.full-black');
+              const esSpan = es.querySelector('span.full-black');
+              if(!enSpan || !esSpan) return false;
+              return (enSpan.textContent||'').trim() === (en.textContent||'').trim()
+                && (esSpan.textContent||'').trim() === (es.textContent||'').trim();
+            });
+          }
+          if(secs.includes('phrases') && !fullBlackOK(/^\s*Common Phrases/i)) problems.push('Phrases lines must be fully wrapped in <span class="full-black">…</span>');
+          if(secs.includes('questions') && !fullBlackOK(/^\s*Common Questions/i)) problems.push('Questions lines must be fully wrapped in <span class="full-black">…</span>');
+
+          return problems.length ? problems.join('; ') : '';
+        }catch(e){ return ''; }
+      };
+
+      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, 4);
       await Speech.ensureVoices();
-      addPerLineTTS($('v-output'));
+      addPerLineTTS(outputEl);
+      genBtn.disabled = false;
     });
 
+    // Copy the external (non-HTML) instruction WITHOUT [EN]/[ES] tokens
     $('v-prompt').addEventListener('click', ()=>{
-      if(!topicEl.value.trim()){ $('v-status').textContent="Please enter a topic."; return; }
-      copyText(buildVocabInstruction(), $('v-status'));
+      if(!topicEl.value.trim()){statusEl.textContent="Please enter a topic.";return;}
+      copyText(buildVocabInstruction(), statusEl);
     });
 
-    $('v-copy').addEventListener('click',()=>copyToClipboard($('v-output'),$('v-status')));
-    $('v-excel').addEventListener('click',()=>downloadAsExcel($('v-output'),$('v-status'),$('v-topic').value||'Vocabulary'));
+    $('v-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
+    $('v-excel').addEventListener('click',()=>downloadAsExcel(outputEl,statusEl,topicEl.value||'Vocabulary'));
   })();
 
 /* =========================
