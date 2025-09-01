@@ -7,6 +7,7 @@ from openai import OpenAI
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
 OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
 
+# If a provider wraps HTML in a code fence, unwrap it.
 FENCE_RE = re.compile(r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
 
 class handler(BaseHTTPRequestHandler):
@@ -51,29 +52,25 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
+            # NOTE: No “enforce constraints” directive here—only follow the embedded contract.
             completion = client.chat.completions.create(
                 model="gpt-4o",
-                temperature=0.9,
+                temperature=0.8,
                 max_tokens=12000,
                 messages=[
                     {
                         "role": "system",
                         "content": (
                             "You are an expert FCS assistant. Return ONLY full raw HTML (a valid document). "
-                            "STRICTLY follow the embedded contract inside the user's HTML prompt. "
-                            "Vocabulary generator rules to enforce: "
-                            "• Nouns section = noun words/phrases ONLY (no sentences), grouped by subcategory header rows; "
-                            "  the Spanish noun word in each row MUST be wrapped in <span class=\"es\">…</span>. "
-                            "• Verbs section = full sentences; highlight ONLY the verb — exactly one <span class=\"en\">…</span> in the English cell "
-                            "  and one <span class=\"es\">…</span> in the Spanish cell per row. "
-                            "• Descriptive section = full sentences; highlight ONLY the descriptive word — exactly one <span class=\"en\">…</span> "
-                            "  and one <span class=\"es\">…</span> per row; each sentence references nouns/verbs introduced in this output. "
-                            "• REQUIRED QUANTITY = number of DISTINCT red-highlighted Spanish terms (<span class=\"es\">…</span>) across Nouns + Verbs + Descriptive. "
-                            "  This count MUST be within the min–max for the selected level/UI. If short, EXPAND by adding unique items until inside range "
-                            "(prefer adding to Nouns distributed across subcategories, then Verbs, then Descriptive). "
-                            "• Avoid repeating highlighted Spanish terms across these three sections unless unavoidable. "
-                            "• Run a self-check BEFORE responding. "
-                            "Conversation generator is unchanged; do not alter it. "
+                            "Strictly follow the embedded contract inside the user's HTML prompt. "
+                            "Vocabulary generator expectations (do not change UI/format): "
+                            "• Nouns = noun words/phrases (no sentences) with subcategory header rows; "
+                            "  the Spanish noun in each row is wrapped in <span class=\"es\">…</span>. "
+                            "• Verbs = full sentences; highlight only the verb: exactly one <span class=\"en\">…</span> "
+                            "  in the English cell and one <span class=\"es\">…</span> in the Spanish cell. "
+                            "• Descriptive = full sentences; highlight only the descriptive word: exactly one "
+                            "<span class=\"en\">…</span> and one <span class=\"es\">…</span>; each sentence references "
+                            "nouns/verbs introduced in this output. "
                             "Do NOT add explanations or code fences."
                         ),
                     },
