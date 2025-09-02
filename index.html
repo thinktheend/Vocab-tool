@@ -153,7 +153,7 @@
     );
   }
 
-  /* ===== Level-ish lines (kept for prompt display, not used to generate) ===== */
+  /* ===== Level rules (used ONLY by Conversation) ===== */
   function getLevelRulesLines(level){
     switch(String(level)){
       case '1':
@@ -173,7 +173,7 @@
   }
 
   /* =========================
-     Vocabulary
+     Vocabulary (NO LEVELS — only Word Count Plan)
      ========================= */
   (function setupVocab(){
     const vocabUI =
@@ -247,20 +247,13 @@
       return vals.length ? vals : ['nouns','verbs','adjectives','adverbs','phrases','questions'];
     }
 
+    // WORD COUNT PLANS ONLY (no levels referenced here)
     const presetRanges={
       "1":{min:33,max:55},
       "2":{min:60,max:85},
       "3":{min:90,max:120},
       "4":{min:160,max:220},
       "5":{min:210,max:280}
-    };
-    const planTexts={
-      "1":"Word Count 1 (≈ L1 — Survival)",
-      "2":"Word Count 2 (≈ L2 — Beginner)",
-      "3":"Word Count 3 (≈ L3 — Intermediate)",
-      "4":"Word Count 4 (≈ L4 — Conversational)",
-      "5":"Word Count 5 (≈ L5 — Fluent)",
-      "custom":"Custom"
     };
 
     function updateUI(){
@@ -269,14 +262,14 @@
       if(!isCustom){
         const r=presetRanges[planEl.value];
         tminEl.value=r.min; tmaxEl.value=r.max;
-        presetTextEl.textContent=`Preset for ${planTexts[planEl.value]}: ${r.min}–${r.max} total Spanish vocabulary items (target upper bound).`;
+        presetTextEl.textContent=`Preset for Word Count ${planEl.value}: ${r.min}–${r.max} total Spanish vocabulary items (target upper bound).`;
       }else{
         presetTextEl.textContent=`Custom: set Min/Max (1–300).`;
       }
     }
     planEl.addEventListener('change',updateUI); updateUI();
 
-    /* ---------- PROMPT (the exact text you copy to ChatGPT) ---------- */
+    /* ---------- PROMPT (the exact text you copy to ChatGPT) — NO LEVELS ---------- */
     function buildVocabInstruction(){
       let minCount, maxCount;
       if (planEl.value==='custom'){
@@ -389,27 +382,21 @@
       ].join('\n');
     }
 
-    /* ---- HTML generation prompt that mirrors EXACTLY what the copied prompt would produce ---- */
+    /* ---- HTML generation prompt (renders same content as the copied prompt) ---- */
     function buildVocabPrompt(){
-      // Build the exact same instruction text you copy to ChatGPT:
       const rawPrompt = buildVocabInstruction();
-
-      // Build the HTML container that tells the model:
-      // 1) Generate the SAME content it would produce for rawPrompt (7 parts, same counts/logic),
-      // 2) but RENDER it as our HTML (two-column tables, coloring spans, section boxes).
       const topic = (topicEl.value || '').trim();
 
       return `<!DOCTYPE html>
 <!-- FCS VOCABULARY OUTPUT
   IMPORTANT CONTRACT TO THE MODEL:
-  You must first internally answer the following (Markdown) prompt EXACTLY as ChatGPT would.
-  THEN render the SAME content (words, counts, organization, section titles) as styled HTML
-  using the rules below (formatting adaptation only).
+  First internally answer the following (Markdown) prompt EXACTLY as ChatGPT would.
+  THEN render the SAME content (words, counts, organization, section titles) as styled HTML.
 
   ===== THE ORIGINAL PROMPT YOU MUST FOLLOW (for content parity) =====
 ${rawPrompt}
 
-  ===== HTML RENDERING RULES (override “No HTML” above for this app view) =====
+  ===== HTML RENDERING RULES =====
   • Create 7 .section blocks in this exact order with <h2> titles:
     1) Nouns
     2) Verbs in Sentences
@@ -422,8 +409,8 @@ ${rawPrompt}
   • Nouns: list nouns (no sentences). If >20 nouns, insert bold subcategory header rows INSIDE the same table as:
       <tr class="subcat"><td colspan="2"><strong>Nouns — [Category EN] / [Categoría ES]</strong></td></tr>
     Spanish noun in each row MUST be wrapped in <span class="es">…</span> (red).
-  • Verbs in Sentences: write English as He/She/It/They “is/are going to” + **to + verb**; Spanish uses equivalent future perífrasis.
-    Highlight ONLY the verb — wrap the EN “to + verb” with <span class="en">…</span> and the ES infinitive with <span class="es">…</span>.
+  • Verbs in Sentences: write English as He/She/It/They “is/are going to” + <span class="en">to + verb</span>;
+    Spanish uses the equivalent perífrasis and wraps the infinitive with <span class="es">…</span>.
   • Adjectives: sentences “is/are + adjective”. Highlight ONLY the adjective with one <span class="en">…</span> (EN) and one <span class="es">…</span> (ES).
   • Adverbs: sentences reuse verbs from Part 2; highlight ONLY the adverb with one <span class="en">…</span> and one <span class="es">…</span>.
   • Common Phrases & Common Questions: full cells (no extra coloring spans).
