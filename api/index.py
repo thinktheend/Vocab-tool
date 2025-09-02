@@ -52,11 +52,11 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            # Single-shot HTML response. We keep a generous but valid max_tokens for gpt-4o.
+            # Single-shot HTML response.
             completion = client.chat.completions.create(
                 model=os.getenv("OPENAI_MODEL", "gpt-4o"),
                 temperature=0.8,
-                max_tokens=min(int(os.getenv("MODEL_MAX_TOKENS", "14000")), 16384),
+                max_tokens=min(int(os.getenv("MODEL_MAX_TOKENS", "8000")), 16384),
                 messages=[
                     {
                         "role": "system",
@@ -64,18 +64,16 @@ class handler(BaseHTTPRequestHandler):
                             "You are an expert FCS assistant. Return ONLY full raw HTML (a valid document). "
                             "Strictly follow the embedded contract inside the user's HTML prompt. "
                             "Vocabulary generator rules (do not change UI/format): "
-                            "• NOUNS: words/phrases only (no sentences) under subcategory header rows; "
-                            "  the Spanish noun in each row is wrapped in <span class=\"es\">…</span> (red). "
-                            "• VERBS: full sentences; use He/She/It/They + is/are going to + [infinitive]; "
-                            "  highlight ONLY the verb (one <span class=\"en\">…</span> in English cell, "
-                            "  one <span class=\"es\">…</span> in Spanish cell). "
-                            "• ADJECTIVES: full sentences; highlight ONLY the adjective "
-                            "  (one <span class=\"en\">…</span> in English cell and one <span class=\"es\">…</span> in Spanish cell); "
-                            "  sentences must reference nouns/verbs introduced in this same output. "
-                            "• ADVERBS: full sentences; highlight ONLY the adverb "
-                            "  (one <span class=\"en\">…</span> in English cell and one <span class=\"es\">…</span> in Spanish cell); "
-                            "  sentences must reference nouns/verbs introduced in this same output. "
-                            "Common Phrases/Questions: keep your existing formatting rules exactly. "
+                            "• NOUNS: words/phrases only (no sentences) with subcategory header rows when required; "
+                            "  the Spanish noun is wrapped in <span class=\"es\">…</span> (red). "
+                            "• VERBS: full sentences using He/She/It/They + is/are going to + [infinitive]; "
+                            "  highlight ONLY the verb (one <span class=\"en\">…</span> in the English cell, "
+                            "  one <span class=\"es\">…</span> in the Spanish cell). "
+                            "• ADJECTIVES: full sentences with is/are + adjective; highlight ONLY the adjective "
+                            "  (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>). "
+                            "• ADVERBS: full sentences that reuse verbs, highlight ONLY the adverb "
+                            "  (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>). "
+                            "Common Phrases/Questions and the Full Vocabulary Index must follow the contract. "
                             "Do NOT add explanations or code fences."
                         ),
                     },
