@@ -4,14 +4,11 @@ import json
 from http.server import BaseHTTPRequestHandler
 from openai import OpenAI
 
-OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")  # optional
-OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")      # optional
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
+OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
 
-# Strip accidental code fences safely
-FENCE_RE = re.compile(
-    r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$",
-    re.IGNORECASE
-)
+# If a provider wraps HTML in a code fence, unwrap it.
+FENCE_RE = re.compile(r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
 
 class handler(BaseHTTPRequestHandler):
     def _send_cors_headers(self):
@@ -35,6 +32,7 @@ class handler(BaseHTTPRequestHandler):
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
             raw = self.rfile.read(content_length) if content_length else b"{}"
+
             try:
                 data = json.loads(raw.decode("utf-8"))
             except json.JSONDecodeError:
@@ -54,25 +52,30 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            # Single bigger pass for speed; your frontend validators handle strictness.
+            # Single-shot HTML response. We keep a generous but valid max_tokens for gpt-4o.
             completion = client.chat.completions.create(
-                model="gpt-4o",
-                temperature=0.9,
-                max_tokens=5000,  # room for long monologues & large vocab
+                model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+                temperature=0.8,
+                max_tokens=min(int(os.getenv("MODEL_MAX_TOKENS", "14000")), 16384),
                 messages=[
                     {
                         "role": "system",
                         "content": (
-                            "You are an expert FCS assistant. Return ONLY full raw HTML (a complete, valid document). "
-                            "STRICTLY follow the embedded contract in the user's HTML prompt: "
-                            "• Obey all UI selections/quantities exactly (levels, sections, counts, turns, sentences/turn). "
-                            "• Nouns must include subcategories as header rows in the same table and be noun words only. "
-                            "• Verbs: only the verb is highlighted (one <span class=\"en\"> and one <span class=\"es\"> per row). "
-                            "• Descriptive: only the single descriptive word is highlighted (one <span class=\"en\"> and one <span class=\"es\"> per row). "
-                            "• Descriptive rows must reference nouns/verbs introduced in this output. "
-                            "• If 1 conversation & 1 speaker, produce a monologue obeying turns/sentences-per-turn and prefer maximum length. "
-                            "• Level differences must align with CEFR notions included in the prompt. "
-                            "• No empty <tbody>; self-check all constraints BEFORE responding. "
+                            "You are an expert FCS assistant. Return ONLY full raw HTML (a valid document). "
+                            "Strictly follow the embedded contract inside the user's HTML prompt. "
+                            "Vocabulary generator rules (do not change UI/format): "
+                            "• NOUNS: words/phrases only (no sentences) under subcategory header rows; "
+                            "  the Spanish noun in each row is wrapped in <span class=\"es\">…</span> (red). "
+                            "• VERBS: full sentences; use He/She/It/They + is/are going to + [infinitive]; "
+                            "  highlight ONLY the verb (one <span class=\"en\">…</span> in English cell, "
+                            "  one <span class=\"es\">…</span> in Spanish cell). "
+                            "• ADJECTIVES: full sentences; highlight ONLY the adjective "
+                            "  (one <span class=\"en\">…</span> in English cell and one <span class=\"es\">…</span> in Spanish cell); "
+                            "  sentences must reference nouns/verbs introduced in this same output. "
+                            "• ADVERBS: full sentences; highlight ONLY the adverb "
+                            "  (one <span class=\"en\">…</span> in English cell and one <span class=\"es\">…</span> in Spanish cell); "
+                            "  sentences must reference nouns/verbs introduced in this same output. "
+                            "Common Phrases/Questions: keep your existing formatting rules exactly. "
                             "Do NOT add explanations or code fences."
                         ),
                     },
@@ -81,7 +84,6 @@ class handler(BaseHTTPRequestHandler):
             )
 
             ai_content = (completion.choices[0].message.content or "").strip()
-
             m = FENCE_RE.match(ai_content)
             if m:
                 ai_content = m.group(1).strip()
