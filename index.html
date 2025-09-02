@@ -82,89 +82,101 @@
     return json.content;
   }
 
-  /* Simple generator (fast, no validator) for Vocabulary */
+  /* Simple generator for Vocabulary */
   async function generateSimple(basePrompt, button, statusEl, outputEl){
-    button.disabled=true;
-    statusEl.textContent="Generating...";
-    outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
-    const html = await callAPI(basePrompt);
-    outputEl.innerHTML = html;
-    statusEl.textContent = "Done.";
-    button.disabled=false;
-  }
-
-  /* Retry helper for Conversation (unchanged behavior) */
-  async function generateResultWithRetries(basePrompt, button, statusEl, outputEl, validator, maxRetries=1){
-    button.disabled=true;
-    statusEl.textContent="Generating...";
-    outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
-    let html = await callAPI(basePrompt);
-    for (let attempt=0; attempt<maxRetries; attempt++){
-      const failMsg = validator ? validator(html) : "";
-      if (!failMsg) break;
-      statusEl.textContent = `Retrying to enforce constraints… (${attempt+1}/${maxRetries})`;
-      const retryPrompt = basePrompt + `
-
-<!-- VIOLATION NOTICE:
-${failMsg}
-Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS class names or document structure.
--->`;
-      html = await callAPI(retryPrompt);
+    try{
+      button.disabled=true;
+      statusEl.textContent="Generating...";
+      outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
+      const html = await callAPI(basePrompt);
+      outputEl.innerHTML = html;
+      statusEl.textContent = "Done.";
+    }catch(err){
+      console.error(err);
+      statusEl.textContent = "Generation failed.";
+    }finally{
+      button.disabled=false;
     }
-    outputEl.innerHTML = html;
-    statusEl.textContent = "Done.";
   }
 
-  /* ===== CEFR-ish lines for prompts (kept) ===== */
+  /* Excel export */
+  function downloadAsExcel(container,statusEl,filename){
+    try{
+      const firstTable = container.querySelector("table");
+      if(!firstTable){ statusEl.textContent="No data to export."; return; }
+      statusEl.textContent="Creating Excel...";
+      const wb=XLSX.utils.book_new(), rows=[], title=container.querySelector("h1")?container.querySelector("h1").innerText:(filename||'Export');
+      rows.push([title]); rows.push([]);
+      container.querySelectorAll("h2, table").forEach(el=>{
+        if(el.tagName==="H2"){ rows.push([el.innerText]); }
+        if(el.tagName==="TABLE"){
+          el.querySelectorAll("tr").forEach(tr=>{
+            const line=Array.from(tr.querySelectorAll("th, td")).map(td=>td.innerText);
+            rows.push(line);
+          });
+          rows.push([]);
+        }
+      });
+      const ws=XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"]=rows.reduce((acc,row)=>{row.forEach((cell,i)=>{const w=(cell?cell.toString():"").length+2; if(!acc[i]||acc[i].wch<w) acc[i]={wch:w}}); return acc;},[]);
+      XLSX.utils.book_append_sheet(wb,ws,"Generated Content");
+      XLSX.writeFile(wb,`${(filename||'Export').replace(/\s+/g,"_")}.xlsx`);
+      statusEl.textContent="Download started.";
+    }catch(e){ console.error("Excel Error:",e); statusEl.textContent="Failed to create Excel."; }
+  }
+
+  /* Copy helpers */
+  function copyToClipboard(container,statusEl){
+    try{
+      const txt = container.innerText.trim();
+      if(!txt){ statusEl.textContent="Nothing to copy."; return; }
+      navigator.clipboard.writeText(txt).then(
+        ()=>statusEl.textContent="Copied!",
+        ()=>{
+          const t=document.createElement("textarea");
+          t.value=txt; document.body.appendChild(t); t.select();
+          try{ document.execCommand("copy") ? statusEl.textContent="Copied!" : statusEl.textContent="Copy failed."; }
+          catch(e){ statusEl.textContent="Copy failed."; }
+          document.body.removeChild(t);
+        }
+      );
+    }catch(e){ statusEl.textContent="Copy failed."; }
+  }
+  function copyText(text,statusEl){
+    const t=(text||"").trim();
+    if(!t){ statusEl.textContent="Nothing to copy."; return; }
+    navigator.clipboard.writeText(t).then(
+      ()=>statusEl.textContent="Prompt copied!",
+      ()=>{
+        const ta=document.createElement("textarea");
+        ta.value=t; document.body.appendChild(ta); ta.select();
+        try{ document.execCommand("copy") ? statusEl.textContent="Prompt copied!" : statusEl.textContent="Copy failed."; }
+        catch(e){ statusEl.textContent="Copy failed."; }
+        document.body.removeChild(ta);
+      }
+    );
+  }
+
+  /* ===== CEFR-ish lines (kept) ===== */
   function getLevelRulesLines(level){
     switch(String(level)){
       case '1':
-        return [
-          'LEVEL 1 — Survival (≈ CEFR A1) (MUST FOLLOW):',
-          '• Basic present tense; ser/estar recognition; simple WH- questions.',
-          '• Glue words: y, o, pero, porque; prepositions: a, en, de, con.',
-          '• Concrete everyday vocabulary only.'
-        ];
+        return ['LEVEL 1 — Survival (≈ CEFR A1) (MUST FOLLOW):','• Basic present tense; ser/estar recognition; simple WH- questions.','• Glue words: y, o, pero, porque; prepositions: a, en, de, con.','• Concrete everyday vocabulary only.'];
       case '2':
-        return [
-          'LEVEL 2 — Beginner (≈ CEFR A2) (MUST FOLLOW):',
-          '• Present tense production; tener que, necesitar, querer, ir a, poder, acabar de, gustar.',
-          '• Ser vs. estar; simple object pronouns; reflexives with regular verbs.',
-          '• Polite conditional with poder/gustar/deber; basic time words.'
-        ];
+        return ['LEVEL 2 — Beginner (≈ CEFR A2) (MUST FOLLOW):','• Present tense production; tener que, necesitar, querer, ir a, poder, acabar de, gustar.','• Ser vs. estar; simple object pronouns; reflexives with regular verbs.','• Polite conditional with poder/gustar/deber; basic time words.'];
       case '3':
-        return [
-          'LEVEL 3 — Intermediate (≈ CEFR B1) (MUST FOLLOW):',
-          '• Pretérito + imperfecto; present progressive.',
-          '• Narrative sequencing (primero, después, luego, finalmente).',
-          '• Add comparisons and richer connectors.'
-        ];
+        return ['LEVEL 3 — Intermediate (≈ CEFR B1) (MUST FOLLOW):','• Pretérito + imperfecto; present progressive.','• Narrative sequencing (primero, después, luego, finalmente).','• Add comparisons and richer connectors.'];
       case '4':
-        return [
-          'LEVEL 4 — Conversational (≈ CEFR B2) (MUST FOLLOW):',
-          '• Simple future & conditional; present perfect & present perfect progressive.',
-          '• All uses of “se” (passive/impersonal/clitic/reflexive/accidental/reciprocal).',
-          '• Nuanced connectors (aunque, sin embargo, por lo tanto).'
-        ];
+        return ['LEVEL 4 — Conversational (≈ CEFR B2) (MUST FOLLOW):','• Simple future & conditional; present perfect & present perfect progressive.','• All uses of “se”.','• Nuanced connectors (aunque, sin embargo, por lo tanto).'];
       case '5':
-        return [
-          'LEVEL 5 — Fluent (≈ CEFR C1) (MUST FOLLOW):',
-          '• Imperatives; subjunctive (present/past) where required.',
-          '• Expanded progressives & perfects; persuasion and hedging.',
-          '• Complex discourse markers (aun así, por ende, no obstante).'
-        ];
+        return ['LEVEL 5 — Fluent (≈ CEFR C1) (MUST FOLLOW):','• Imperatives; subjunctive (present/past) where required.','• Expanded progressives & perfects; persuasion and hedging.','• Complex discourse markers (aun así, por ende, no obstante).'];
       case '6':
-        return [
-          'LEVEL 6 — Native (≈ CEFR C2) (MUST FOLLOW):',
-          '• Native-like register and idioms; precise aspect & mood.',
-          '• Cohesive devices across long discourse; subtle pragmatics.',
-          '• Still obey UI constraints (turns, sentences/turn, speakers).'
-        ];
+        return ['LEVEL 6 — Native (≈ CEFR C2) (MUST FOLLOW):','• Native-like register and idioms; precise aspect & mood.','• Cohesive devices across long discourse; subtle pragmatics.','• Still obey UI constraints.'];
       default: return [];
     }
   }
 
-  /* Speech helpers (unchanged) */
+  /* ====== Shared TTS helpers (unchanged) ====== */
   const Speech = {
     voices: [], ready:false, defaultRate:0.85,
     ensureVoices(){ return new Promise(res=>{ if(!('speechSynthesis'in window)){res();return;}
@@ -190,7 +202,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       window.speechSynthesis.speak(u);
     }
   };
-
   function getCellReadableText(td){
     let txt = '';
     td.childNodes.forEach(n=>{
@@ -212,110 +223,6 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
     return assign;
   }
 
-  function addPerLineTTS(root){
-    const sections = root.querySelectorAll('.section');
-    sections.forEach(section=>{
-      const title = section.querySelector('h2')?.textContent || '';
-      const isConversation = /Conversation\s+\d+/i.test(title);
-      const tables = section.querySelectorAll('table');
-      tables.forEach(tbl=>{
-        const ths=Array.from(tbl.querySelectorAll('thead th'));
-        const map=ths.map(th=>{
-          const t=(th.textContent||'').toLowerCase();
-          if (t.includes('english') || t.includes('(en)')) return 'en';
-          if (t.includes('español') || t.includes('espanol') || t.includes('(es)')) return 'es';
-          return '';
-        });
-        Array.from(tbl.querySelectorAll('tbody tr')).forEach(tr=>{
-          const tds=Array.from(tr.querySelectorAll('td'));
-          tds.forEach((td,i)=>{
-            const lang=map[i];
-            if (lang==='en'||lang==='es'){
-              if (!td.querySelector('.tts-line-btn')){
-                const b=document.createElement('button');
-                b.type='button'; b.className='tts-line-btn'; b.setAttribute('data-tts',lang); b.textContent='🔊';
-                td.insertBefore(b, td.firstChild);
-                b.addEventListener('click', async e=>{
-                  e.stopPropagation();
-                  await Speech.ensureVoices();
-                  const raw = getCellReadableText(td);
-                  if (isConversation){
-                    const speaker = getSpeakerFromText(raw) || `Speaker${speakerVoiceMap.size+1}`;
-                    const assign = assignVoiceForSpeaker(speaker);
-                    const clean = stripSpeakerLabel(raw);
-                    Speech.stop();
-                    Speech.speak(clean, lang==='es'?'es':'en', { pitch: assign.pitch });
-                  } else {
-                    Speech.stop();
-                    Speech.speak(raw, lang);
-                  }
-                });
-              }
-            }
-          });
-        });
-      });
-    });
-  }
-
-  function addConversationPlayers(root){
-    const sections = Array.from(root.querySelectorAll('.section h2'))
-      .filter(h2=>/Conversation\s+\d+/i.test(h2.textContent||''));
-    sections.forEach(h2=>{
-      const parent = h2.parentElement;
-      const table = parent.querySelector('table');
-      if(!table) return;
-      const ths = Array.from(table.querySelectorAll('thead th'));
-      let esIdx = ths.findIndex(th=>/español|espanol/i.test(th.textContent||'')); if(esIdx<0) esIdx = ths.length-1;
-      const rows = Array.from(table.querySelectorAll('tbody tr'));
-      const items = rows.map(r=>{
-        const tds=Array.from(r.querySelectorAll('td'));
-        const cell = tds[esIdx];
-        if (!cell) return null;
-        const raw = getCellReadableText(cell);
-        if(!raw) return null;
-        const speaker = getSpeakerFromText(raw) || 'Narr';
-        const text = stripSpeakerLabel(raw);
-        return { speaker, text };
-      }).filter(Boolean);
-      if (parent.querySelector('.conv-ctrls')) return;
-      const ctrl = document.createElement('div');
-      ctrl.className='conv-ctrls';
-      const playBtn=document.createElement('button'); playBtn.className='primary'; playBtn.textContent='Play (ES)';
-      const pauseBtn=document.createElement('button'); pauseBtn.textContent='Pause';
-      const resumeBtn=document.createElement('button'); resumeBtn.textContent='Resume';
-      const stopBtn=document.createElement('button'); stopBtn.textContent='Stop';
-      ctrl.append(playBtn,pauseBtn,resumeBtn,stopBtn);
-      parent.insertBefore(ctrl, table);
-      let idx=0; let state='stopped';
-      const onend = ()=>{ if(state!=='stopped'){ idx++; if(idx>=items.length){ state='stopped'; return; } speakCurrent(); } };
-      function speakCurrent(){
-        const it = items[idx]; if(!it){ state='stopped'; return; }
-        const assign = assignVoiceForSpeaker(it.speaker);
-        Speech.stop();
-        const u = new SpeechSynthesisUtterance(it.text);
-        const v = Speech.pickVoice('es');
-        if (v) u.voice=v;
-        u.lang = v ? v.lang : 'es-ES';
-        u.rate = 0.92;
-        u.pitch = assign.pitch;
-        u.volume = 1.0;
-        u.onend = onend;
-        window.speechSynthesis.speak(u);
-        state='playing';
-      }
-      const btnPlay = ctrl.querySelector('button.primary');
-      btnPlay.addEventListener('click', async ()=>{ await Speech.ensureVoices();
-        if(state==='stopped'){ idx=0; speakCurrent(); }
-        else if(state==='playing'){ window.speechSynthesis.pause(); state='paused'; }
-        else if(state==='paused'){ window.speechSynthesis.resume(); state='playing'; }
-      });
-      ctrl.children[1].addEventListener('click', ()=>{ if(state==='playing'){ window.speechSynthesis.pause(); state='paused'; }});
-      ctrl.children[2].addEventListener('click', ()=>{ if(state==='paused'){ window.speechSynthesis.resume(); state='playing'; }});
-      ctrl.children[3].addEventListener('click', ()=>{ Speech.stop(); state='stopped'; idx=0; });
-    });
-  }
-
   /* =========================
      Vocabulary
      ========================= */
@@ -326,7 +233,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
         <div class="grid">
           <div class="six"><label for="v-topic">Topic</label><input id="v-topic" type="text" placeholder="e.g., At the Airport"></div>
 
-          <!-- COMBINED: Word Count plan (replaces Level + Words mode). Custom preserved. -->
+          <!-- Word Count plans (kept) -->
           <div class="six"><label for="v-plan">Word Count Plan</label>
             <select id="v-plan">
               <option value="1" selected>Word Count 1</option>
@@ -393,7 +300,7 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       return vals.length ? vals : ['nouns','verbs','adjectives','adverbs','phrases','questions'];
     }
 
-    /* Preset ranges: keep same numbers as your old Level 1–5 */
+    /* Preset ranges (same as before 1–5) */
     const presetRanges={
       "1":{min:33,max:55},
       "2":{min:60,max:85},
@@ -416,63 +323,134 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       if(!isCustom){
         const r=presetRanges[planEl.value];
         tminEl.value=r.min; tmaxEl.value=r.max;
-        presetTextEl.textContent=`Preset for ${planTexts[planEl.value]}: ${r.min}–${r.max} Spanish red-highlighted words across Nouns + Verbs + Adjectives + Adverbs.`;
+        presetTextEl.textContent=`Preset for ${planTexts[planEl.value]}: ${r.min}–${r.max} total Spanish vocabulary items.`;
       }else{
         presetTextEl.textContent=`Custom: set Min/Max (1–300).`;
       }
     }
     planEl.addEventListener('change',updateUI); updateUI();
 
-    /* ---------- Copyable instructions (mention TWO COLUMNS) ---------- */
+    /* ---------- Copyable PROMPT (exact format you provided) ---------- */
     function buildVocabInstruction(){
       const secs = selectedSections();
       const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'),
             includeAdj = secs.includes('adjectives'), includeAdv = secs.includes('adverbs'),
             includeP = secs.includes('phrases'), includeQ = secs.includes('questions');
 
-      let minCount, maxCount, planLabel;
+      let minCount, maxCount;
       if (planEl.value==='custom'){
         minCount = Math.max(1, Math.min(300, Number(tminEl.value) || 1));
         maxCount = Math.max(minCount, Math.min(300, Number(tmaxEl.value) || minCount));
-        planLabel = 'Custom';
       } else {
         const r = presetRanges[planEl.value];
         minCount = r.min; maxCount = r.max;
-        planLabel = planTexts[planEl.value];
       }
 
-      const onlySections = [
-        includeN?'Nouns':null,
-        includeV?'Verbs':null,
-        includeAdj?'Adjectives':null,
-        includeAdv?'Adverbs':null,
-        includeP?'Common Phrases':null,
-        includeQ?'Common Questions':null
-      ].filter(Boolean).join(', ');
+      const topic = (topicEl.value || '').trim();
 
-      const teacherIncl = vocabIncludeEl.value ? vocabIncludeEl.value.replace(/[\r\n]+/g,'; ') : 'None';
-      const levelLines = getLevelRulesLines(String(planEl.value)); // keep CEFR flavor by index
-
+      // Your exact prompt template:
       return [
-`You are an expert assistant for FCS.`,
-`IMPORTANT: Do NOT return HTML. Produce TWO PARTS (Word + CSV).`,
-`Make each section as a TWO-COLUMN table with headers exactly: "English" and "Español".`,
-`Topic: "${topicEl.value}". Word Plan: "${planLabel}".`,
-`Sections (strict): ${onlySections||'(none)'}.`,
-
-`NOUNS: noun words/phrases only (no sentences); organize under 4+ subcategories; Spanish noun is the target term (red).`,
-`VERBS: full sentences; use “He/She/It/They is/are going to [infinitive] …”; highlight ONLY the verb (EN blue, ES red).`,
-`ADJECTIVES: full sentences; highlight ONLY the adjective (EN blue, ES red); sentences must reference nouns/verbs from this output.`,
-`ADVERBS: full sentences; highlight ONLY the adverb (EN blue, ES red); sentences must reference nouns/verbs from this output.`,
-
-`Teacher vocabulary (use when natural): ${teacherIncl}.`,
-`GLOBAL: Alphabetize by English within each section (within subcategories for Nouns).`,
-`TARGET SIZE: Produce between ${minCount} and ${maxCount} DISTINCT Spanish <span class="es">…</span> items across Nouns + Verbs + Adjectives + Adverbs (aim near the upper bound).`,
-`LEVEL RULES (by plan index):\n- ${levelLines.join('\n- ')}`
+`You are an expert assistant for the FCS program.`,
+`Topic: “${topic}”.`,
+`Vocabulary range: ${minCount}–${maxCount} distinct Spanish vocabulary words (target the upper bound).`,
+``,
+`Requirements:`,
+``,
+`Organize the output into 7 parts:`,
+``,
+`1. Nouns`,
+``,
+`Present as bold article + noun (English & Spanish).`,
+``,
+`Subdivision rule:`,
+``,
+`If there are more than 20 nouns, subdivide into logical thematic categories (e.g., Nouns — Equipment, Nouns — People, Nouns — Places).`,
+``,
+`If there are 20 nouns or fewer, keep in a single block.`,
+``,
+`Alphabetize English terms within each category.`,
+``,
+`All nouns must be relevant to the chosen topic.`,
+``,
+`2. Verbs in Sentences`,
+``,
+`Always third-person sentences in English with “is/are going + to + verb.”`,
+``,
+`Reflexive verbs must place pronoun after the infinitive (e.g., va a descansarse).`,
+``,
+`Bold “to + verb” in English and the infinitive in Spanish.`,
+``,
+`Sentences must include a mixture of three types (but do not label them in the output):`,
+``,
+`Sentences where nouns from Part 1 are the objects.`,
+``,
+`Sentences where nouns from Part 1 are the subjects.`,
+``,
+`Sentences with no nouns from Part 1, only 3rd person subject (he/she/it/they) but still relevant to the topic.`,
+``,
+`All verbs must be relevant to the topic or topic situations.`,
+``,
+`3. Adjectives`,
+``,
+`Sentences pairing nouns from Part 1 with “is/are + adjective.”`,
+``,
+`Only the adjective should be bold, not the noun.`,
+``,
+`Each major noun must be shown with two or more adjectives, often opposites or related pairs (e.g., The water is cold / The water is warm).`,
+``,
+`Adjectives must be relevant to the topic.`,
+``,
+`4. Adverbs`,
+``,
+`Sentences reusing verbs from Part 2, each modified with an adverb.`,
+``,
+`Only the adverb should be bold, not the verb or noun.`,
+``,
+`Adverbs must be appropriate for describing the topic.`,
+``,
+`5. Common Phrases`,
+``,
+`Whole phrase in English only in the left column, Spanish only in the right column.`,
+``,
+`All phrases must be common expressions in the topic.`,
+``,
+`6. Common Questions`,
+``,
+`Whole question in English only in the left column, Spanish only in the right column.`,
+``,
+`Do not include answers.`,
+``,
+`All questions must be relevant to the topic.`,
+``,
+`7. Full Vocabulary Index`,
+``,
+`List all nouns, verbs, adjectives, adverbs, phrases, and questions.`,
+``,
+`Alphabetized in groups.`,
+``,
+`Present in a two-column Markdown table (English | Español).`,
+``,
+`Each vocabulary item in bold in both English & Spanish.`,
+``,
+`Do not include sentences here — just the word or phrase.`,
+``,
+`Formatting Rules`,
+``,
+`Use Markdown tables for Parts 1–7.`,
+``,
+`English on left, Spanish on right.`,
+``,
+`No HTML.`,
+``,
+`Alphabetize English terms within each section.`,
+``,
+`Ensure the total vocabulary count (Nouns + Verbs + Adjectives + Adverbs + Phrases + Questions) is within the requested range.`,
+``,
+`All vocabulary, sentences, phrases, and questions must be clearly relevant to the topic.`
       ].join('\n');
     }
 
-    /* ---- Build actual HTML prompt (app generation) ---- */
+    /* ---- Build actual HTML prompt (used by the generator) ---- */
     function buildVocabPrompt(){
       const secs = selectedSections();
       const includeN = secs.includes('nouns'), includeV = secs.includes('verbs'),
@@ -502,25 +480,14 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       const rules = [
         `Generate ONLY these sections: ${onlySections}. Do NOT add others.`,
         "Two columns only: English | Español.",
-        // Nouns
-        "Nouns: MUST be grouped into 4+ subcategories within a single Nouns table; insert subcategory header rows BEFORE items:",
-        "  <tr class=\"subcat\"><td colspan=\"2\"><strong>[Subcategory EN / Subcategoría ES]</strong></td></tr>",
-        "Noun rows are WORDS/PHRASES ONLY (no sentences; ≤4 words; no end punctuation). Spanish noun MUST be wrapped in <span class=\"es\">…</span> (red). No <span class=\"en\"> in Nouns.",
-        // Verbs
-        "Verbs: rows are full sentences. Use He/She/It/They + is/are going to + [infinitive]. Highlight ONLY the verb — exactly one <span class=\"en\">…</span> in English cell and one <span class=\"es\">…</span> in Spanish cell.",
-        // Adjectives / Adverbs
-        "Adjectives: full sentences; highlight ONLY the adjective — exactly one <span class=\"en\">…</span> and one <span class=\"es\">…</span>; sentences must reference nouns/verbs used in this output.",
-        "Adverbs: full sentences; highlight ONLY the adverb — exactly one <span class=\"en\">…</span> and one <span class=\"es\">…</span>; sentences must reference nouns/verbs used in this output.",
-        // Phrases & Questions (unchanged)
-        "Common Phrases: wrap the entire English cell and the entire Spanish cell in <span class=\"full-black\">…</span>.",
-        "Common Questions: bold the question row in both languages; answer row normal; both wrapped in <span class=\"full-black\">…</span>; add an empty spacer row after each Q&A.",
-        // Size drive (without hard validator)
-        `Aim for a total of DISTINCT Spanish <span class=\"es\">…</span> items BETWEEN ${minCount} and ${maxCount} across Nouns + Verbs + Adjectives + Adverbs (bias toward the upper bound).`,
-        `Include these specific terms if provided: ${vocabIncludeEl.value ? vocabIncludeEl.value.replace(/</g,"&lt;").replace(/>/g,"&gt;") : 'None'}.`,
-        "No table may have an empty <tbody>.",
-        "Alphabetize items inside each section by English (inside subcategories for Nouns)."
+        "Nouns: words/phrases only; Spanish noun wrapped in <span class=\"es\">…</span>; 4+ subcategory header rows if >20 items.",
+        "Verbs: He/She/It/They is/are going to + [infinitive]; highlight ONLY the verb (one <span class=\"en\">…</span> in EN and one <span class=\"es\">…</span> in ES).",
+        "Adjectives: sentences with is/are + adjective; highlight ONLY the adjective (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>); reuse nouns from Nouns.",
+        "Adverbs: sentences that reuse verbs from Verbs and add an adverb; highlight ONLY the adverb (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>).",
+        "Common Phrases/Questions: full-cell formatting per your existing rules.",
+        `Aim for ${minCount}–${maxCount} DISTINCT Spanish <span class=\"es\">…</span> items across Nouns + Verbs + Adjectives + Adverbs + Phrases + Questions (target upper bound).`,
+        `No table may have an empty <tbody>. Alphabetize English terms within each section.`
       ];
-      const levelLines = getLevelRulesLines(String(planEl.value));
 
       let sectionsHTML = "";
       if (includeN) sectionsHTML += `<div class="section"><h2>Nouns / Sustantivos</h2>
@@ -565,12 +532,10 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 </style></head>
 <body><div class="fcs-doc" lang="en">
   <h1>Vocabulary: ${topicEl.value} — ${planLabel}</h1>
-  <div class="legend"><span class="en">English blue</span> | <span class="es">Spanish red</span> (phrases & questions: full black)</div>
+  <div class="legend"><span class="en">English blue</span> | <span class="es">Spanish red</span></div>
 
   <!-- RULES:
     ${rules.map((r,i)=>`${i+1}) ${r}`).join('\n    ')}
-    LEVEL RULES:
-    - ${levelLines.join('\n    - ')}
   -->
 
   ${sectionsHTML}
@@ -578,23 +543,23 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
       return prompt;
     }
 
+    /* ---- Buttons (fixed wiring) ---- */
     $('v-gen').addEventListener('click', async ()=>{
       if(!topicEl.value.trim()){ $('v-status').textContent="Please enter a topic."; return; }
       const prompt = buildVocabPrompt();
       await generateSimple(prompt, $('v-gen'), $('v-status'), $('v-output'));
       await Speech.ensureVoices();
-      addPerLineTTS($('v-output'));
     });
 
     $('v-prompt').addEventListener('click', ()=>{
       if(!topicEl.value.trim()){ $('v-status').textContent="Please enter a topic."; return; }
-      copyText(buildVocabInstruction(), $('v-status'));
+      const instruction = buildVocabInstruction();
+      copyText(instruction, $('v-status'));
     });
 
     $('v-copy').addEventListener('click',()=>copyToClipboard($('v-output'),$('v-status')));
     $('v-excel').addEventListener('click',()=>downloadAsExcel($('v-output'),$('v-status'),$('v-topic').value||'Vocabulary'));
   })();
-
 /* =========================
      Conversation
      ========================= */
