@@ -56,7 +56,7 @@ class handler(BaseHTTPRequestHandler):
             completion = client.chat.completions.create(
                 model=os.getenv("OPENAI_MODEL", "gpt-4o"),
                 temperature=0.8,
-                max_tokens=min(int(os.getenv("MODEL_MAX_TOKENS", "8000")), 16384),
+                max_tokens=min(int(os.getenv("MODEL_MAX_TOKENS", "15000")), 16384),
                 messages=[
                     {
                         "role": "system",
