@@ -508,7 +508,8 @@ ${rawPrompt}
             </select>
           </div>
 
-          <div><label># of Conversations</label><input id="c-numConvos" type="number" value="2" min="1"/></div>
+          <!-- Defaults changed here: 1 conversation, 2 speakers -->
+          <div><label># of Conversations</label><input id="c-numConvos" type="number" value="1" min="1"/></div>
           <div><label># of Speakers</label><input id="c-numSpeakers" type="number" value="2" min="1"/></div>
 
           <div class="grid-full" style="display:grid; grid-template-columns: repeat(3, 1fr); gap:12px;">
@@ -522,11 +523,22 @@ ${rawPrompt}
           </div>
           <div><label>Country / Region</label><select id="c-country"></select></div>
 
-          <div class="grid-full"><label>Include English Translation</label><select id="c-includeEN"><option value="yes" selected>Yes</option><option value="no">No</option></select></div>
-          <div><label>Add Fill-In-The-Blank</label><select id="c-addFib"><option value="no">No</option><option value="yes" selected>Yes</option></select></div>
-          <div><label>Fill-In-The-Blank Focus</label><select id="c-fibFocus"><option>Mixed</option><option>Vocab only</option><option>Grammar only</option><option>Verbs only</option></select></div>
-          <div><label>Show FIB Answer Key</label><select id="c-showFIBKey"><option value="yes">Yes</option><option value="no">No</option></select></div>
-          <div><label>Show Vocabulary List</label><select id="c-showVocabList"><option value="yes">Yes</option><option value="no">No</option></select></div>
+          <!-- FIB options (replaces old Add FIB / FIB Focus / Show Answer Key / Show Vocabulary List) -->
+          <div class="grid-full">
+            <label>Fill-in-the-Blank Options</label>
+            <div id="c-fib-group" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;">
+              <label><input type="checkbox" id="c-fib-none" checked> none</label>
+              <label><input type="checkbox" id="c-fib-mixed"> mixed</label>
+              <label><input type="checkbox" class="fib-opt" value="nouns"> nouns</label>
+              <label><input type="checkbox" class="fib-opt" value="verbs"> verbs</label>
+              <label><input type="checkbox" class="fib-opt" value="adjectives/adverbs"> adjectives/adverbs</label>
+              <label><input type="checkbox" class="fib-opt" value="pronouns"> pronouns (object pronouns)</label>
+              <label><input type="checkbox" class="fib-opt" value="glue words"> glue words</label>
+            </div>
+            <div class="hint">
+              “mixed” checks all content options; “none” clears them. Glue words include possessive pronouns, demonstratives, conjunctions, adverbs, quantifiers, prepositions, and comparisons (more than, as much as, better, etc.).
+            </div>
+          </div>
 
           <div class="grid-full"><label for="c-vocab">Vocabulary (optional)</label><textarea id="c-vocab" rows="6" placeholder="Put your own vocabulary here..."></textarea></div>
           <div class="grid-full"><label>Optional Teacher Notes</label><textarea id="c-notes" rows="4"></textarea></div>
@@ -541,9 +553,10 @@ ${rawPrompt}
     const countries=["-no specific-","Argentina","Bolivia","Chile","Colombia","Costa Rica","Cuba","Dominican Republic","Ecuador","El Salvador","Equatorial Guinea","Guatemala","Honduras","Mexico","Nicaragua","Panama","Paraguay","Peru","Puerto Rico","Spain","Uruguay","Venezuela"];
     countrySelect.innerHTML=countries.map(c=>`<option>${c}</option>`).join('');
 
-    // grab controls ONCE (this was duplicated before and crashed the script)
+    // controls
     const genBtn=$('c-gen'),excelBtn=$('c-excel'),copyBtn=$('c-copy'),promptBtn=$('c-prompt'),statusEl=$('c-status'),outputEl=$('c-output');
 
+    // ---- Utility buttons (Copy / Excel / Copy Prompt)
     function downloadAsExcel(container,statusEl,filename){
       try{
         const firstTable = container.querySelector("table");
@@ -581,6 +594,7 @@ ${rawPrompt}
       navigator.clipboard.writeText(t).then(()=>statusEl.textContent="Prompt copied!",()=>statusEl.textContent="Copy failed.");
     }
 
+    // ---- Level rule helper (unchanged)
     function getLevelRulesLines(level){
       switch(String(level)){
         case '1': return ['LEVEL 1 — Survival (≈ CEFR A1) (MUST FOLLOW):','• Basic present tense; ser/estar recognition; simple WH- questions.','• Glue words: y, o, pero, porque; prepositions: a, en, de, con.','• Concrete everyday vocabulary only.'];
@@ -593,11 +607,34 @@ ${rawPrompt}
       }
     }
 
+    // ---- FIB selection logic
+    const noneBox = $('c-fib-none');
+    const mixedBox = $('c-fib-mixed');
+    const fibBoxes = Array.from(document.querySelectorAll('#c-fib-group .fib-opt'));
+    function syncFibFromNone(){ if(noneBox.checked){ mixedBox.checked=false; fibBoxes.forEach(b=>b.checked=false); } }
+    function syncFibFromMixed(){ if(mixedBox.checked){ noneBox.checked=false; fibBoxes.forEach(b=>b.checked=true); } }
+    function syncFibFromOption(){
+      if (fibBoxes.some(b=>b.checked)) { noneBox.checked=false; mixedBox.checked=fibBoxes.every(b=>b.checked); }
+      else { noneBox.checked=true; mixedBox.checked=false; }
+    }
+    noneBox.addEventListener('change', syncFibFromNone);
+    mixedBox.addEventListener('change', syncFibFromMixed);
+    fibBoxes.forEach(b=>b.addEventListener('change', syncFibFromOption));
+
+    function getSelectedFIB(){
+      const tags = fibBoxes.filter(b=>b.checked).map(b=>b.value);
+      const active = tags.length>0; // any option selected means FIB is on
+      const label = active ? tags.join(', ') : 'none';
+      return { active, tags, label };
+    }
+
+    // ---- Prompt text (copy)
     function buildConvoInstruction(){
       const topic=$('c-topic').value.trim();
       const sentMin = Math.max(1, Number($('c-sentMin').value)||2);
       const sentMax = Math.max(sentMin, Number($('c-sentMax').value)||4);
       const turns = Math.max(1, Number($('c-turns').value)||10);
+      const fib = getSelectedFIB();
       const fibCount = Math.max(8, Math.min(40, Math.round(turns * 0.9)));
 
       const ui = {
@@ -610,11 +647,7 @@ ${rawPrompt}
         turns,
         tone: $('c-tone').value,
         region: $('c-country').value,
-        includeEN: $('c-includeEN').value,
-        addFIB: $('c-addFib').value,
-        fibFocus: $('c-fibFocus').value,
-        showFIBKey: $('c-showFIBKey').value,
-        showVocabList: $('c-showVocabList').value,
+        fibOptions: fib.active ? fib.tags : [],
         teacherNotes: $('c-notes').value||""
       };
 
@@ -633,50 +666,71 @@ ${rawPrompt}
         `Create EXACTLY ${ui.numConvos} conversation section(s) titled "Conversation 1", "Conversation 2", ...`,
         `Use exactly ${ui.numSpeakers} distinct speaker name(s) appropriate to the region.`,
         `Each conversation has EXACTLY ${ui.turns} turns (rows).`,
-        (ui.includeEN==='yes'
-          ? `Tables have two columns: "English" | "Español".`
-          : `Tables have one column: "Español" only.`),
-        `Each turn contains between ${ui.sentences_per_turn.min} and ${ui.sentences_per_turn.max} Spanish sentences (and English sentences if included).`,
+        `Tables have two columns: "English" | "Español".`,
+        `Each turn contains between ${ui.sentences_per_turn.min} and ${ui.sentences_per_turn.max} Spanish sentences (and English sentences).`,
         (ui.numConvos===1 && ui.numSpeakers===1
-          ? `Because #Conversations=1 and #Speakers=1, produce a MONOLOGUE: one recurring speaker across all ${ui.turns} turns. Prefer the UPPER bound for very long output.`
+          ? `Because #Conversations=1 and #Speakers=1, produce a MONOLOGUE across all ${ui.turns} turns. Prefer the UPPER bound of sentences/turn for length.`
           : `Keep flow natural; mix short replies with longer turns; avoid robotic symmetry.`)
       ];
 
-      const fibRules = (ui.addFIB!=='yes') ? [] : [
-        `Include a Fill-in-the-Blank section with exactly ${fibCount} items.`,
-        `Readable View rule:`,
-        `• English cell = full English sentence; NO blanks; the translated target wrapped in [EN]...[/EN].`,
+      const fibRules = (!fib.active) ? [`No Fill-in-the-Blank section.`] : [
+        `Include a Fill-in-the-Blank section with about ${fibCount} items.`,
+        `FIB content focus (select all that apply): ${fib.label}.`,
+        `Readable View formatting (existing protocol):`,
+        `• English cell = full natural English sentence; NO blanks; target wrapped in [EN]...[/EN].`,
         `• Español cell = full Spanish sentence with the target replaced by "________"; immediately BEFORE the blank include the English word in parentheses.`,
-        ui.showFIBKey==='yes'
-          ? `Provide a numbered Answer Key (answers only) after FIB.`
-          : `Do NOT include an Answer Key.`
-      ];
-
-      const vocabListRule = (ui.showVocabList!=='yes') ? [] : [
-        `After conversations (and FIB if present), include a "Vocabulary Used" list.`
+        `MANDATORY: Include a numbered Answer Key after FIB.`,
+        `MANDATORY: Include a "Vocabulary Used" list covering Spanish vocabulary used across conversations and FIB with English | Español columns.`
       ];
 
       const partA = [
         `PART A — READABLE VIEW (Word):`,
-        (ui.includeEN==='yes'
-          ? `- Under each "Conversation X", provide a Markdown table: "English" | "Español".`
-          : `- Under each "Conversation X", provide a single-column Markdown table: "Español".`),
+        `- Under each "Conversation X", provide a Markdown table: "English" | "Español".`,
         `- Keep names and punctuation natural.`
       ];
 
       const partB = [
         `PART B — CSV:`,
         `1) CSV_CONVERSATIONS — header: "Conversation","Turn","Speaker","English","Español". Include every turn.`,
-        (ui.addFIB==='yes') ? `2) CSV_FIB — header: "English","Español".` : null,
-        (ui.showVocabList==='yes') ? `3) CSV_VOCAB_USED — header: "English","Español".` : null,
-        (ui.showFIBKey==='yes') ? `4) CSV_ANSWER_KEY — header: "#","Answer".` : null
+        fib.active ? `2) CSV_FIB — header: "English","Español".` : null,
+        fib.active ? `3) CSV_VOCAB_USED — header: "English","Español".` : null,
+        fib.active ? `4) CSV_ANSWER_KEY — header: "#","Answer".` : null
       ].filter(Boolean);
 
       const footer = [
         `GLOBAL: No HTML. Stay on topic "${ui.topic}". Obey level & UI exactly.`
       ];
 
-      return [...header, '', 'Rules (strict):', ...baseRules, ...fibRules, ...vocabListRule, '', ...partA, '', ...partB, '', ...footer].join('\n');
+      return [...header, '', 'Rules (strict):', ...baseRules, ...fibRules, '', ...partA, '', ...partB, '', ...footer].join('\n');
+    }
+
+    // ---- HTML prompt (generation)
+    async function callAPI(prompt){
+      const resp=await fetch("/api/index",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
+      const json=await resp.json();
+      if(!resp.ok) throw new Error(json.details||json.error||"Unknown server error.");
+      return json.content;
+    }
+    async function generateResultWithRetries(basePrompt, button, statusEl, outputEl, validator, maxRetries=1){
+      button.disabled=true;
+      statusEl.textContent="Generating...";
+      outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
+      let html = await callAPI(basePrompt);
+      for (let attempt=0; attempt<maxRetries; attempt++){
+        const failMsg = validator ? validator(html) : "";
+        if (!failMsg) break;
+        statusEl.textContent = `Retrying to enforce constraints… (${attempt+1}/${maxRetries})`;
+        const retryPrompt = basePrompt + `
+
+<!-- VIOLATION NOTICE:
+${failMsg}
+Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS class names or document structure.
+-->`;
+        html = await callAPI(retryPrompt);
+      }
+      outputEl.innerHTML = html;
+      statusEl.textContent = "Done.";
+      button.disabled=false;
     }
 
     function buildConvoPrompt(){
@@ -684,6 +738,7 @@ ${rawPrompt}
       const sentMin = Math.max(1, Number($('c-sentMin').value)||2);
       const sentMax = Math.max(sentMin, Number($('c-sentMax').value)||4);
       const turns = Math.max(1, Number($('c-turns').value)||10);
+      const fib = getSelectedFIB();
 
       const ui = {
         topic,
@@ -695,11 +750,7 @@ ${rawPrompt}
         turns,
         tone: $('c-tone').value,
         region: $('c-country').value,
-        includeEN: $('c-includeEN').value,
-        addFIB: $('c-addFib').value,
-        fibFocus: $('c-fibFocus').value,
-        showFIBKey: $('c-showFIBKey').value,
-        showVocabList: $('c-showVocabList').value,
+        fibOptions: fib.active ? fib.tags : [],
         teacherNotes: $('c-notes').value||""
       };
 
@@ -711,14 +762,12 @@ ${rawPrompt}
         `Each conversation has EXACTLY UI.turns turns (rows).`,
         `Use EXACTLY UI.numSpeakers distinct speaker name(s); if UI.numSpeakers === 1, use the same speaker name for all turns (monologue).`,
         `Each turn has between UI.sentences_per_turn.min and UI.sentences_per_turn.max sentences in Spanish (and English if included). Prefer the UPPER bound and longer, multi-clause sentences${isMono?' for a very long monologue':''}.`,
-        (ui.includeEN==='yes'
-          ? 'Headers must be exactly "English" and "Español".'
-          : 'Single column header must be "Español".'),
+        'Headers must be exactly "English" and "Español".',
         `Tone: "${ui.tone}". Region/culture cues: "${ui.region}". Level: ${ui.level}.`,
         `LEVEL RULES:\n- ${levelLines.join('\n- ')}`,
-        (ui.addFIB==='yes' ? `Include Fill-in-the-Blank (${ui.fibFocus}) with large set (≈ ${Math.max(8, Math.min(40, Math.round(ui.turns*0.9)))}) following formatting rules.` : ''),
-        (ui.showVocabList==='yes' ? 'Include "Vocabulary Used".' : ''),
-        (ui.showFIBKey==='yes' ? 'Include "Answer Key".' : ''),
+        fib.active ? `Include Fill-in-the-Blank focused on: ${fib.tags.join(', ')}. Provide a large set (≈ ${Math.max(8, Math.min(40, Math.round(ui.turns*0.9)))}) following formatting rules.` : '',
+        fib.active ? 'MANDATORY: Include "Vocabulary Used".' : '',
+        fib.active ? 'MANDATORY: Include "Answer Key".' : '',
         'No empty <tbody>. SELF-CHECK all constraints before returning.'
       ].filter(Boolean);
 
@@ -726,14 +775,12 @@ ${rawPrompt}
   <div class="section">
     <h2>Conversation ${i+1}</h2>
     <table class="tbl">
-      <thead>
-        ${ui.includeEN==='yes'
-          ? '<tr><th>English</th><th lang="es">Español</th></tr>'
-          : '<tr><th lang="es">Español</th></tr>'}
-      </thead>
+      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
       <tbody></tbody>
     </table>
   </div>`).join('');
+
+      const fibLabel = fib.active ? fib.tags.join(', ') : '';
 
       return `<!DOCTYPE html>
 <!-- FCS CONVERSATION OUTPUT (full HTML) -->
@@ -771,75 +818,54 @@ ${rawPrompt}
 
   ${conversationsHTML}
 
-  ${(ui.addFIB==='yes') ? `
+  ${fib.active ? `
   <div class="section">
-    <h2>Practice — Fill-in-the-Blank (${ui.fibFocus})</h2>
+    <h2>Practice — Fill-in-the-Blank (${fibLabel})</h2>
     <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
   </div>` : ''}
 
-  ${(ui.showVocabList==='yes') ? `
+  ${fib.active ? `
   <div class="section">
     <h2>Vocabulary Used</h2>
     <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
   </div>` : ''}
 
-  ${(ui.showFIBKey==='yes') ? `
+  ${fib.active ? `
   <div class="section">
     <h2>Answer Key</h2>
     <table class="tbl"><thead><tr><th>#</th><th>Answer</th></tr></thead><tbody></tbody></table>
   </div>` : ''}
+
+  ${ui.vocab && ui.vocab!=="(auto-generate level-appropriate list if empty)" ?
+  `<div class="legend" style="white-space:pre-wrap;border:1px dashed var(--border);padding:8px;border-radius:8px;margin-top:8px;">
+    Teacher Vocabulary (STRICT use):\n${ui.vocab.replace(/</g,"&lt;").replace(/>/g,"&gt;")}
+  </div>` : ''}
+
+  ${ui.teacherNotes ? `<div class="legend" style="white-space:pre-wrap;margin-top:8px;">Teacher notes:\n${ui.teacherNotes.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>` : ''}
 
 </div>
 </body>
 </html>`;
     }
 
-    // local callAPI + retry helper (unchanged behavior)
-    async function callAPI(prompt){
-      const resp=await fetch("/api/index",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt})});
-      const json=await resp.json();
-      if(!resp.ok) throw new Error(json.details||json.error||"Unknown server error.");
-      return json.content;
-    }
-    async function generateResultWithRetries(basePrompt, button, statusEl, outputEl, validator, maxRetries=1){
-      button.disabled=true;
-      statusEl.textContent="Generating...";
-      outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
-      let html = await callAPI(basePrompt);
-      for (let attempt=0; attempt<maxRetries; attempt++){
-        const failMsg = validator ? validator(html) : "";
-        if (!failMsg) break;
-        statusEl.textContent = `Retrying to enforce constraints… (${attempt+1}/${maxRetries})`;
-        const retryPrompt = basePrompt + `
-
-<!-- VIOLATION NOTICE:
-${failMsg}
-Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS class names or document structure.
--->`;
-        html = await callAPI(retryPrompt);
-      }
-      outputEl.innerHTML = html;
-      statusEl.textContent = "Done.";
-      button.disabled=false;
-    }
-
-    // hook up buttons
+    // ---- Generate
     genBtn.addEventListener('click', async ()=>{
       const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
       const prompt = buildConvoPrompt();
-      const validator = (html)=>""; // unchanged
-      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, 1);
+      const validator = (html)=>""; // keep fast path; no extra retries
+      await generateResultWithRetries(prompt, genBtn, statusEl, outputEl, validator, 0);
     });
 
+    // ---- Prompt / Copy / Excel
     promptBtn.addEventListener('click', ()=>{
       const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
       const instruction = buildConvoInstruction();
       copyText(instruction, statusEl);
     });
-
     copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
     excelBtn.addEventListener('click', ()=>downloadAsExcel(outputEl,statusEl,$('c-topic').value||'Conversation'));
   })();
+
   /* =========================
      Test (unchanged)
      ========================= */
