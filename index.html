@@ -68,7 +68,7 @@
   const $=id=>document.getElementById(id);
   const API_URL="/api/index";
 
-  /* ---------- Helpers ---------- */
+  /* ---------- Helpers to prevent “code on page” & add TTS ---------- */
   function decodeIfEscaped(html){
     const s=String(html||'');
     if(/&lt;(!DOCTYPE|html|head|body|div|table|h1|h2)/i.test(s)){
@@ -89,7 +89,7 @@
   }
   const safeForScriptTemplate = s => String(s||'').replace(/<\/script/gi,'<\\/script');
 
-  /* ---------- TTS ---------- */
+  // Lightweight TTS
   const Speech = (function(){
     let voices=[], ready=false;
     function load(){ voices = window.speechSynthesis ? window.speechSynthesis.getVoices() : []; return voices.length>0; }
@@ -107,21 +107,17 @@
       return voices.find(v=>v.lang.toLowerCase()===L)
           || voices.find(v=>v.lang.toLowerCase().startsWith(L.split('-')[0])) || null;
     }
-    function speak(text, lang, onend){
-      if(!('speechSynthesis' in window)) { if(onend) onend(); return; }
-      const t=(text||'').replace(/\s+/g,' ').trim(); if(!t){ if(onend) onend(); return; }
+    function speak(text, lang){
+      if(!('speechSynthesis' in window)) return;
+      const t=(text||'').replace(/\s+/g,' ').trim(); if(!t) return;
+      window.speechSynthesis.cancel();
       const u=new SpeechSynthesisUtterance(t);
       u.lang = (lang==='es' ? 'es-ES' : 'en-US');
       const v=pick(u.lang); if(v) u.voice=v;
-      if (onend) u.onend = onend;
       window.speechSynthesis.speak(u);
     }
-    function pause(){ if('speechSynthesis' in window) window.speechSynthesis.pause(); }
-    function resume(){ if('speechSynthesis' in window) window.speechSynthesis.resume(); }
-    function cancel(){ if('speechSynthesis' in window) window.speechSynthesis.cancel(); }
-    return { ensure, speak, pause, resume, cancel };
+    return { ensure, speak };
   })();
-
   function addPerLineTTS(root){
     if(!root || !('speechSynthesis' in window)) return;
     root.querySelectorAll('table tbody tr').forEach(tr=>{
@@ -135,73 +131,11 @@
         btn.addEventListener('click',e=>{
           e.stopPropagation();
           const text=(cell.innerText||'').replace(/^\s*🔊\s*(EN|ES)\s*/,'').trim();
-          Speech.cancel();
           Speech.speak(text,lang);
         });
         cell.insertBefore(btn, cell.firstChild);
       });
     });
-  }
-
-  function injectGlobalTTSControlsForConvo(root){
-    if (!root) return;
-    let ctrl = root.querySelector('.conv-ctrls');
-    if (ctrl) ctrl.remove();
-    ctrl = document.createElement('div');
-    ctrl.className = 'conv-ctrls';
-    ctrl.innerHTML = `
-      <button type="button" id="c-play">▷ Play All</button>
-      <button type="button" id="c-pause">⏸ Pause</button>
-      <button type="button" id="c-stop">⏹ Stop</button>
-      <span class="small" id="c-tts-status"></span>
-    `;
-    root.prepend(ctrl);
-
-    const status = ctrl.querySelector('#c-tts-status');
-
-    function buildQueue(){
-      const items = [];
-      root.querySelectorAll('h2').forEach(h=>{
-        if (!/^Conversation\s+\d+/i.test(h.textContent)) return;
-        const tbody = h.parentElement.querySelector('table tbody');
-        if (!tbody) return;
-        tbody.querySelectorAll('tr').forEach(tr=>{
-          const tds = tr.querySelectorAll('td');
-          if (tds[0]) items.push({lang:'en', text: tds[0].innerText.replace(/^\s*🔊\s*EN\s*/,'').trim()});
-          if (tds[1]) items.push({lang:'es', text: tds[1].innerText.replace(/^\s*🔊\s*ES\s*/,'').trim()});
-        });
-      });
-      return items;
-    }
-
-    let queue = [];
-    let index = 0;
-    let running = false;
-    function play(){
-      if (!running){
-        Speech.cancel();
-        queue = buildQueue();
-        index = 0;
-        running = true;
-      } else {
-        Speech.resume();
-        status.textContent = 'Playing...';
-        return;
-      }
-      const step = ()=>{
-        if (index >= queue.length){ running=false; status.textContent='Done.'; return; }
-        const item = queue[index++];
-        status.textContent = `Playing (${index}/${queue.length})`;
-        Speech.speak(item.text, item.lang, step);
-      };
-      step();
-    }
-    function pause(){ Speech.pause(); status.textContent='Paused.'; }
-    function stop(){ Speech.cancel(); running=false; status.textContent='Stopped.'; }
-
-    ctrl.querySelector('#c-play').addEventListener('click', play);
-    ctrl.querySelector('#c-pause').addEventListener('click', pause);
-    ctrl.querySelector('#c-stop').addEventListener('click', stop);
   }
 
   /* Tabs */
@@ -217,25 +151,20 @@
     return json.content;
   }
 
-  async function generateAndRender(basePrompt, button, statusEl, outputEl, validator, maxRetries=4){
+  // Generate with up to 1 retry when validator reports a violation
+  async function generateAndRender(basePrompt, button, statusEl, outputEl, validator){
     try{
       button.disabled=true;
       statusEl.textContent="Generating...";
       outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
       let html = await callAPI(basePrompt);
 
-      for (let attempt=0; attempt<maxRetries; attempt++){
-        const err = validator ? validator(html) : "";
-        if (!err) break;
-        statusEl.textContent = `Fixing constraints… (${attempt+1}/${maxRetries})`;
-        html = await callAPI(basePrompt + `
-
-<!-- STRICT FIX REQUIRED:
-${err}
-Do not reduce requested quantities. Preserve document structure (.fcs-doc, section order, tables).
--->`);
+      if (validator){
+        const err = validator(html);
+        if (err){
+          html = await callAPI(basePrompt + `\n\n<!-- FIX STRICTLY:\n${err}\n-->`);
+        }
       }
-
       renderGenerated(html, outputEl);
       await Speech.ensure();
       addPerLineTTS(outputEl);
@@ -319,14 +248,6 @@ Do not reduce requested quantities. Preserve document structure (.fcs-doc, secti
     }
   }
 
-  /* ===== Util: sentence splitter (cross-browser) ===== */
-  function splitIntoSentences(text){
-    const norm = String(text || '').replace(/\s+/g,' ').trim();
-    if(!norm) return [];
-    const parts = norm.match(/[^.!?]+[.!?]?/g) || [];
-    return parts.map(s=>s.trim()).filter(Boolean);
-  }
-
   /* ===== Level rules (Conversation) ===== */
   function getLevelRulesLines(level){
     switch(String(level)){
@@ -341,7 +262,7 @@ Do not reduce requested quantities. Preserve document structure (.fcs-doc, secti
   }
 
   /* =========================
-     Vocabulary (enforce count; no Index)
+     Vocabulary (no behavior changes—adds validator so all selected sections appear)
      ========================= */
   (function setupVocab(){
     const vocabUI =
@@ -419,49 +340,62 @@ Do not reduce requested quantities. Preserve document structure (.fcs-doc, secti
       if(!isCustom){
         const r=presetRanges[planEl.value];
         tminEl.value=r.min; tmaxEl.value=r.max;
-        presetTextEl.textContent=`Preset for Word Count ${planEl.value}: ${r.min}–${r.max} total items (rows across all sections).`;
+        presetTextEl.textContent=`Preset for Word Count ${planEl.value}: ${r.min}–${r.max} total Spanish vocabulary items (target upper bound).`;
       }else{ presetTextEl.textContent=`Custom: set Min/Max (1–300).`; }
     }
     planEl.addEventListener('change',updateUI); updateUI();
 
-    function currentRange(){
-      if (planEl.value==='custom'){
-        const min=Math.max(1, Math.min(300, Number(tminEl.value)||1));
-        const max=Math.max(min, Math.min(300, Number(tmaxEl.value)||min));
-        return {min,max};
-      }
-      return presetRanges[planEl.value];
+    function selectedSections(){
+      if (allBox.checked) return ['nouns','verbs','adjectives','adverbs','phrases','questions'];
+      const vals = childBoxes.filter(b=>b.checked).map(b=>b.value);
+      return vals.length ? vals : ['nouns','verbs','adjectives','adverbs','phrases','questions'];
     }
 
     function buildVocabInstruction(){
-      const {min,max}=currentRange();
+      let minCount, maxCount;
+      if (planEl.value==='custom'){
+        minCount = Math.max(1, Math.min(300, Number(tminEl.value) || 1));
+        maxCount = Math.max(minCount, Math.min(300, Number(tmaxEl.value) || minCount));
+      } else { const r=presetRanges[planEl.value]; minCount=r.min; maxCount=r.max; }
       const topic=(topicEl.value||'').trim();
-      const selected = Array.from(document.querySelectorAll('.v-sec:checked')).map(b=>b.value);
       return [
 `You are an expert assistant for the FCS program.`,
 `Topic: “${topic}”.`,
-`ABSOLUTE QUANTITY: Produce between ${min} and ${max} total ROWS across the sections listed below (each table row = 1 item). Target the UPPER bound. Do not under-deliver.`,
-`Sections (in this exact order): ${selected.length?selected.join(', '):'nouns, verbs, adjectives, adverbs, phrases, questions'}.`,
-`Formatting: Output Markdown (no HTML). Each section is a two-column table: English | Español.`,
-`Rules per section (same as before, shortened):`,
-`• Nouns — words/phrases only; subcategory header rows allowed; Spanish noun text visually marked with <span class="es">…</span> in your internal plan (rendered as plain text in Markdown).`,
-`• Verbs in Sentences — English uses “is/are going to” and bolds only “to + verb”; Spanish bolds only the infinitive.`,
-`• Adjectives — “is/are + adjective”; bold only the adjective.`,
-`• Adverbs — reuse verbs; bold only the adverb.`,
-`• Common Phrases — phrases only.`,
-`• Common Questions — questions only (no answers).`,
-`Self-check counts before responding so the TOTAL ROWS across all sections ∈ [${min}, ${max}].`
+`Vocabulary range: ${minCount}–${maxCount} distinct Spanish vocabulary words (target the upper bound).`,
+`Requirements:`,
+`Organize the output into 7 parts:`,
+`1. Nouns`,
+`Present as bold article + noun (English & Spanish).`,
+`Subdivision rule:`,
+`If there are more than 20 nouns, subdivide into logical thematic categories (e.g., Nouns — Equipment, Nouns — People, Nouns — Places).`,
+`If there are 20 nouns or fewer, keep in a single block.`,
+`Alphabetize English terms within each category.`,
+`All nouns must be relevant to the chosen topic.`,
+`2. Verbs in Sentences`,
+`Always third-person sentences in English with “is/are going + to + verb.”`,
+`Reflexive verbs must place pronoun after the infinitive (e.g., va a descansarse).`,
+`Bold “to + verb” in English and the infinitive in Spanish.`,
+`Sentences must include a mixture of three types (do not label):`,
+`• Nouns from Part 1 as objects.`,
+`• Nouns from Part 1 as subjects.`,
+`• No nouns from Part 1 (he/she/it/they), still on topic.`,
+`3. Adjectives`,
+`Sentences pairing nouns from Part 1 with “is/are + adjective.”`,
+`Only the adjective is bold.`,
+`Each major noun has ≥2 adjectives (opposites/related).`,
+`4. Adverbs`,
+`Reuse verbs from Part 2; bold only the adverb.`,
+`5. Common Phrases`,
+`6. Common Questions (no answers)`,
+`7. Full Vocabulary Index (words/phrases only; no sentences)`,
+`Formatting: Markdown tables; English | Español; no HTML; alphabetize English within each section; keep total within requested range; stay on topic.`
       ].join('\n');
     }
 
     function buildVocabPrompt(){
-      const rawPrompt=buildVocabInstruction();
       const topic=safeForScriptTemplate((topicEl.value||'').trim());
       return `<!DOCTYPE html>
-<!-- FCS VOCABULARY OUTPUT
-  1) First internally answer the Markdown prompt EXACTLY and ensure TOTAL ROWS ∈ required range.
-  2) Then render the SAME content as styled HTML (no Full Vocabulary Index).
--->
+<!-- FCS VOCABULARY OUTPUT -->
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Vocabulary — ${topic}</title>
@@ -499,41 +433,43 @@ Do not reduce requested quantities. Preserve document structure (.fcs-doc, secti
   <div class="section"><h2>Common Questions</h2>
     <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
   </div>
-</div></body></html>
-
-<!-- ORIGINAL PROMPT FOR CONTENT PARITY
-${rawPrompt}
--->`;
+  <div class="section"><h2>Full Vocabulary Index</h2>
+    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
+  </div>
+</div></body></html>`;
     }
 
-    function countVocabRows(doc){
-      const secs = Array.from(doc.querySelectorAll('.section'));
-      let rows = 0;
-      secs.forEach(s=>{
-        const tbody = s.querySelector('tbody'); if(!tbody) return;
-        tbody.querySelectorAll('tr').forEach(tr=>{
-          const tds = tr.querySelectorAll('td');
-          if (tds.length === 2) rows += 1; // count only proper 2-cell rows
-        });
-      });
-      return rows;
-    }
-
+    // --- NEW: validator to ensure selected sections are present & non-empty
     function vocabValidator(html){
-      const {min,max}=currentRange();
-      if (/Full Vocabulary Index/i.test(html)) return 'Remove "Full Vocabulary Index".';
       try{
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        const total = countVocabRows(doc);
-        if (total < min) return `You produced ${total} rows; required minimum is ${min}. Add ${min-total} more rows while keeping the same section order and formatting.`;
-        if (total > max) return `You produced ${total} rows; maximum is ${max}. Trim ${total-max} rows without changing section order and formatting.`;
-      }catch(_){}
-      return "";
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(decodeIfEscaped(html), 'text/html');
+        const required = selectedSections(); // from UI
+        const map = {
+          nouns: 'Nouns',
+          verbs: 'Verbs in Sentences',
+          adjectives: 'Adjectives',
+          adverbs: 'Adverbs',
+          phrases: 'Common Phrases',
+          questions: 'Common Questions'
+        };
+        const missing=[];
+        required.forEach(key=>{
+          const title = map[key];
+          const h2 = Array.from(doc.querySelectorAll('h2')).find(h=>h.textContent.trim().toLowerCase()===title.toLowerCase());
+          if(!h2){ missing.push(`Missing section: ${title}`); return; }
+          const tbody = h2.parentElement.querySelector('tbody');
+          if(!tbody || !tbody.querySelector('tr')) missing.push(`Section "${title}" has no rows.`);
+        });
+        return missing.length ? missing.join('\n') : '';
+      }catch(e){
+        return 'Malformed HTML for vocabulary output. Return a full HTML doc with all required sections populated.';
+      }
     }
 
     $('v-gen').addEventListener('click', async ()=>{
       if(!topicEl.value.trim()){ $('v-status').textContent="Please enter a topic."; return; }
-      await generateAndRender(buildVocabPrompt(), $('v-gen'), $('v-status'), $('v-output'), vocabValidator, 2);
+      await generateAndRender(buildVocabPrompt(), $('v-gen'), $('v-status'), $('v-output'), vocabValidator);
     });
     $('v-prompt').addEventListener('click', ()=>{
       if(!topicEl.value.trim()){ $('v-status').textContent="Please enter a topic."; return; }
@@ -544,7 +480,7 @@ ${rawPrompt}
   })();
 
   /* =========================
-     Conversation (strict length, no blanks in conv, FIB rules, Vocab Used contains Answer Key)
+     Conversation (validator ensures exact turns; no blanks in conversation)
      ========================= */
   (function setupConvo(){
     const convoUI =
@@ -627,6 +563,7 @@ ${rawPrompt}
     };
     const getLengthPreset = ()=> LENGTH_PRESETS[$('c-length').value || 'medium'] || LENGTH_PRESETS.medium;
 
+    // FIB selection logic
     const noneBox = $('c-fib-none');
     const mixedBox = $('c-fib-mixed');
     const fibBoxes = Array.from(document.querySelectorAll('#c-fib-group .fib-opt'));
@@ -651,8 +588,8 @@ ${rawPrompt}
       const topic=$('c-topic').value.trim();
       const turns = Math.max(1, Number($('c-turns').value)||10);
       const fib = getSelectedFIB();
+      const fibCount = Math.max(8, Math.min(40, Math.round(turns * 0.9)));
       const L = getLengthPreset();
-      const fibCount = Math.max(20, Math.min(80, turns * L.minSent)); // denser
 
       const ui = {
         topic,
@@ -665,52 +602,65 @@ ${rawPrompt}
         tone: $('c-tone').value,
         region: $('c-country').value,
         fibOptions: fib.active ? fib.tags : [],
-        teacherNotes: $('c-notes').value||"",
-        fibCount
+        teacherNotes: $('c-notes').value||""
       };
 
       const levelLines = getLevelRulesLines(ui.level);
       const baseRules = [
         `Create EXACTLY ${ui.numConvos} conversation section(s) titled "Conversation 1", "Conversation 2", ...`,
-        `Use exactly ${ui.numSpeakers} distinct speaker name(s); every sentence in BOTH columns begins with [Name].`,
-        `Each conversation has EXACTLY ${ui.turns} turns (rows).`,
-        `Each turn must contain between ${ui.sentences_per_turn.min} and ${ui.sentences_per_turn.max} sentences in BOTH columns, and each sentence must have at least ${ui.sentences_per_turn.minWords} words.`,
-        `Conversations MUST NOT contain underscores or blanks ("________") anywhere. Blanks are ONLY allowed in the FIB section.`
+        `Use exactly ${ui.numSpeakers} distinct speaker name(s) appropriate to the region.`,
+        `Each conversation has EXACTLY ${ui.turns} turns (rows). ABSOLUTE: do not add extra rows.`,
+        `Tables have two columns: "English" | "Español".`,
+        `Each turn contains between ${ui.sentences_per_turn.min} and ${ui.sentences_per_turn.max} sentences in each column, and every sentence has at least ${ui.sentences_per_turn.minWords} words. STRICT.`,
+        `NEVER put blanks (________) in conversation tables. Blanks belong ONLY in the Fill-in-the-Blank (FIB) section.`
       ];
 
       const fibRules = (!fib.active)
         ? [
           `No Fill-in-the-Blank section.`,
-          `After the conversations include "Common Phrases" only.`
+          `INSTEAD, include TWO sections after the conversations:`,
+          `• "Common Phrases" — full phrases, English | Español.`,
+          `• "Full Vocabulary Index" — words/phrases ONLY (no sentences), English | Español, alphabetized by English.`
         ]
         : [
           `Include a Fill-in-the-Blank section with about ${fibCount} items.`,
-          `FIB rules: one sentence per row; English highlights exactly one target with <span class="en">…</span>; Spanish cell uses "(English target) ________" with parentheses immediately BEFORE the blank.`,
-          `Vocabulary Used — include a de-duplicated list of words/phrases from BOTH the conversations and ALL Answer Key entries; output as a two-column table (English | Español); alphabetize by English.`,
-          `Answer Key — single-column list of answer words only (no numbering column).`
+          `FIB focus: ${fib.label}.`,
+          `FIB formatting (STRICT):`,
+          `• English column: full sentence; color ONLY the target English word with <span class="en">…</span>.`,
+          `• Spanish column: full sentence; replace the Spanish TARGET word with "________"; immediately BEFORE the blank include the English translation in parentheses.`,
+          `MANDATORY: Numbered Answer Key after FIB.`,
+          `MANDATORY: "Vocabulary Used" list — words/phrases ONLY (no sentences), English | Español, includes all unique vocab from conversations + FIB. Alphabetize by English.`
         ];
 
-      return [
+      const header = [
         `You are an expert assistant for FCS.`,
-        `IMPORTANT: Do NOT return HTML. Produce TWO PARTS (Word + CSV).`,
+        `IMPORTANT: Do NOT return Markdown; return HTML only when the prompt embeds an HTML boilerplate.`,
         `Topic: "${ui.topic}". Level: ${ui.level}. Tone: "${ui.tone}". Region: "${ui.region}".`,
         ui.vocab && ui.vocab !== "(auto-generate level-appropriate list if empty)"
           ? `Teacher vocabulary (preferred when natural): ${ui.vocab.replace(/[\r\n]+/g,'; ')}`
           : `Vocabulary: auto-generate.`,
-        `LEVEL RULES:\n- ${levelLines.join('\n- ')}`,
-        '',
-        'Rules (strict):', ...baseRules, ...fibRules,
-        '',
-        `GLOBAL: Self-check all numeric constraints before responding.`
-      ].join('\n');
+        `LEVEL RULES:\n- ${levelLines.join('\n- ')}`
+      ];
+
+      const partB = [
+        `PART B — CSV:`,
+        `1) CSV_CONVERSATIONS — "Conversation","Turn","Speaker","English","Español".`,
+        (fib.active ? `2) CSV_FIB — "English","Español".` : null),
+        (fib.active ? `3) CSV_VOCAB_USED — "English","Español".` : `3) CSV_VOCAB_INDEX — "English","Español".`),
+        (fib.active ? `4) CSV_ANSWER_KEY — "#","Answer".` : null)
+      ].filter(Boolean);
+
+      return [
+        ...header, '',
+        'Rules (strict):', ...baseRules, ...fibRules, '',
+        `GLOBAL: Stay on topic "${ui.topic}".`
+      ].concat(['', ...partB]).join('\n');
     }
 
     function buildConvoPrompt(){
       const topic= $('c-topic').value.trim();
       const L = getLengthPreset();
       const fib = getSelectedFIB();
-      const turns = Math.max(1, Number($('c-turns').value)||10);
-      const fibCount = Math.max(20, Math.min(80, turns * L.minSent));
 
       const ui = {
         topic,
@@ -719,27 +669,26 @@ ${rawPrompt}
         vocab: $('c-vocab').value || "(auto-generate level-appropriate list if empty)",
         numConvos: Math.max(1, Number($('c-numConvos').value)||1),
         numSpeakers: Math.max(1, Number($('c-numSpeakers').value)||1),
-        turns,
+        turns: Math.max(1, Number($('c-turns').value)||10),
         tone: $('c-tone').value,
         region: $('c-country').value,
         fibOptions: fib.active ? fib.tags : [],
-        teacherNotes: $('c-notes').value||"",
-        fibCount
+        teacherNotes: $('c-notes').value||""
       };
       const levelLines = getLevelRulesLines(ui.level);
       const isMono = (ui.numConvos===1 && ui.numSpeakers===1);
       const rules = [
         `Create EXACTLY UI.numConvos conversation sections: "Conversation 1"...`,
-        `Each conversation has EXACTLY UI.turns turns (rows).`,
-        `Every sentence in BOTH columns begins with [Name].`,
-        `ABSOLUTE LENGTH COMPLIANCE: Each turn has between UI.sentences_per_turn.min and UI.sentences_per_turn.max sentences in BOTH columns; each sentence has ≥ UI.sentences_per_turn.minWords words. Prefer the UPPER bound${isMono?' for a very long monologue':''}.`,
-        `Conversations MUST NOT contain any "________".`,
+        `Each conversation has EXACTLY UI.turns turns (rows). ABSOLUTE: do not add extra rows.`,
+        `Use EXACTLY UI.numSpeakers speaker name(s); if UI.numSpeakers === 1, use the same name for all turns (monologue).`,
+        `Each turn has between UI.sentences_per_turn.min and UI.sentences_per_turn.max sentences in BOTH columns. Each sentence must have ≥ UI.sentences_per_turn.minWords words. Prefer the UPPER bound${isMono?' for a very long monologue':''}.`,
+        'Headers must be exactly "English" and "Español".',
         `Tone: "${ui.tone}". Region: "${ui.region}". Level: ${ui.level}.`,
         `LEVEL RULES:\n- ${levelLines.join('\n- ')}`,
-        (fib.active ? `Include FIB with about UI.fibCount items. EN has <span class="en">target</span>; ES uses (English target) ________.` : 'Include "Common Phrases" only (no index).'),
-        (fib.active ? `Vocabulary Used includes ALL Answer Key entries + additional unique words from conversations. Alphabetize.` : ''),
-        (fib.active ? `Answer Key is single-column list of words.` : ''),
-        'No empty <tbody>. SELF-CHECK constraints before returning.'
+        (fib.active ? `Include Fill-in-the-Blank focused on: ${fib.tags.join(', ')}.` : 'Include Common Phrases + Full Vocabulary Index (words only) after conversations.'),
+        (fib.active ? `FIB: EN has <span class="en">target</span>; ES uses (English target) ________.` : ''),
+        `NEVER put blanks (________) in conversation tables. Blanks belong ONLY in the FIB section.`,
+        'No empty <tbody>. SELF-CHECK all constraints before returning.'
       ].filter(Boolean);
 
       const safeTopic = safeForScriptTemplate(ui.topic);
@@ -782,7 +731,7 @@ ${rawPrompt}
 <body>
 <div class="fcs-doc">
   <h1>Conversation: ${safeTopic} — Level ${ui.level}</h1>
-  <div class="legend"><span class="en">EN vocab = blue</span> | <span class="es">ES vocab = red</span>. Speaker names must appear in [brackets]. No blanks in conversations.</div>
+  <div class="legend"><span class="en">EN vocab = blue</span> | <span class="es">ES vocab = red</span>.</div>
 
   <!-- CONTRACT:
     UI = ${uiJson}
@@ -802,10 +751,14 @@ ${rawPrompt}
   </div>
   <div class="section">
     <h2>Answer Key</h2>
-    <table class="tbl"><thead><tr><th>Answer</th></tr></thead><tbody></tbody></table>
+    <table class="tbl"><thead><tr><th>#</th><th>Answer</th></tr></thead><tbody></tbody></table>
   </div>` : `
   <div class="section">
     <h2>Common Phrases</h2>
+    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
+  </div>
+  <div class="section">
+    <h2>Full Vocabulary Index</h2>
     <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
   </div>`}
 
@@ -821,104 +774,67 @@ ${rawPrompt}
 </html>`;
     }
 
+    // --- NEW: conversation validator (exact turns; no blanks in conversations)
     function convoValidator(html){
       try{
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        const L = getLengthPreset();
-        const expectedTurns = Math.max(1, Number($('c-turns').value)||10);
-        const fibActive = !$('#c-fib-none').checked;
+        const turns = Math.max(1, Number($('c-turns').value)||10);
+        const fibActive = getSelectedFIB().active;
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(decodeIfEscaped(html), 'text/html');
 
-        const convSections = Array.from(doc.querySelectorAll('h2')).filter(h=>/^Conversation\s+\d+/i.test(h.textContent));
-        if (!convSections.length) return 'Missing conversation sections.';
-        for (const h of convSections){
-          const tbody = h.parentElement.querySelector('table tbody');
-          if(!tbody) return `${h.textContent}: table body missing.`;
-          const rows = Array.from(tbody.querySelectorAll('tr'));
-          if (rows.length !== expectedTurns) return `${h.textContent}: must have exactly ${expectedTurns} turns (rows). Found ${rows.length}.`;
+        // 1) Each Conversation section: EXACTLY "turns" rows
+        const convSections = Array.from(doc.querySelectorAll('h2'))
+          .filter(h=>/^Conversation\s+\d+/i.test(h.textContent.trim()))
+          .map(h=>h.parentElement);
+        if (!convSections.length) return 'Missing Conversation sections. Provide "Conversation 1", etc., each with a populated table.';
 
-          for (let i=0;i<rows.length;i++){
-            const tds = rows[i].querySelectorAll('td');
-            if (tds.length<2) return `${h.textContent}, row ${i+1}: needs two cells (English | Español).`;
+        const badCounts = [];
+        convSections.forEach((sec, idx)=>{
+          const tbody = sec.querySelector('tbody');
+          const rows = tbody ? tbody.querySelectorAll('tr').length : 0;
+          if (rows !== turns) badCounts.push(`Conversation ${idx+1}: expected ${turns} turns, found ${rows}.`);
+        });
+        if (badCounts.length) return badCounts.join('\n');
 
-            const checkCell = (txt,label)=>{
-              const clean = txt.replace(/^\s*🔊\s*(EN|ES)\s*/,'').trim();
-              if (clean.includes('________')) return `${h.textContent}, row ${i+1} (${label}): conversations must not contain blanks "________".`;
-              if (!/^\s*\[.+?\]/.test(clean)) return `${h.textContent}, row ${i+1} (${label}): must start with [Speaker Name].`;
-              const sents = splitIntoSentences(clean);
-              if (sents.length < L.minSent || sents.length > L.maxSent){
-                return `${h.textContent}, row ${i+1} (${label}): must have ${L.minSent}–${L.maxSent} sentences; found ${sents.length}.`;
-              }
-              for (let k=0;k<sents.length;k++){
-                const words = sents[k].replace(/[“”"()]/g,'').trim().split(/\s+/).filter(Boolean);
-                if (words.length < L.minWords) return `${h.textContent}, row ${i+1} (${label}), sentence ${k+1}: has ${words.length} words; needs ≥${L.minWords}.`;
-              }
-              return "";
-            };
-            const enErr = checkCell(tds[0].innerText,'English'); if (enErr) return enErr;
-            const esErr = checkCell(tds[1].innerText,'Español'); if (esErr) return esErr;
-          }
-        }
+        // 2) No blanks in conversation tables
+        const convHasBlanks = convSections.some(sec => /________/.test(sec.innerHTML));
+        if (convHasBlanks) return 'Do not include blanks in conversation tables. Blanks (________) are allowed only in the Fill-in-the-Blank section. Remove all blanks from conversations.';
 
+        // 3) FIB presence/blank logic
+        const fibSec = Array.from(doc.querySelectorAll('h2')).find(h=>/Fill-in-the-Blank/i.test(h.textContent));
         if (fibActive){
-          const fibH = Array.from(doc.querySelectorAll('h2')).find(h=>/Practice — Fill-in-the-Blank/i.test(h.textContent));
-          if(!fibH) return 'Missing "Practice — Fill-in-the-Blank" section.';
-          const fibBody = fibH.parentElement.querySelector('table tbody');
-          if(!fibBody) return 'FIB table body missing.';
-          const rows = Array.from(fibBody.querySelectorAll('tr'));
-          if (!rows.length) return 'FIB must contain multiple items.';
-          for (let i=0;i<rows.length;i++){
-            const tds = rows[i].querySelectorAll('td');
-            if (tds.length<2) return `FIB row ${i+1}: needs two cells (English | Español).`;
-            const en = tds[0].innerHTML;
-            const es = tds[1].innerHTML;
-            const enSentences = splitIntoSentences(tds[0].innerText);
-            const esSentences = splitIntoSentences(tds[1].innerText);
-            if (enSentences.length !== 1) return `FIB row ${i+1} EN: must be exactly one sentence.`;
-            if (esSentences.length !== 1) return `FIB row ${i+1} ES: must be exactly one sentence.`;
-            if (!/<span class="en">[^<]+<\/span>/.test(en)) return `FIB row ${i+1} EN: highlight exactly one target word with <span class="en">…</span>.`;
-            if (!/\([\w\s,'-]+\)\s*________/.test(es)) return `FIB row ${i+1} ES: must include "(English word) ________" right before the blank.`;
+          if (!fibSec) return 'FIB requested but missing. Include "Practice — Fill-in-the-Blank" with proper formatting.';
+          const fibBody = fibSec.parentElement.querySelector('tbody');
+          const fibHTML = fibBody ? fibBody.innerHTML : '';
+          if (!/\([\w\s,'-]+\)\s*________/.test(fibHTML) || !/<span class="en">[^<]+<\/span>/.test(fibHTML)){
+            return 'FIB must show "(English word) ________" in the Spanish cell and color ONLY the target English word with <span class="en">…</span> in the English cell.';
           }
-          const usedH = Array.from(doc.querySelectorAll('h2')).find(h=>/Vocabulary Used/i.test(h.textContent));
-          if(!usedH) return 'Missing "Vocabulary Used" section.';
-          const usedBody = usedH.parentElement.querySelector('table tbody');
-          if(!usedBody) return '"Vocabulary Used" table body missing.';
-          const usedEN = new Set(Array.from(usedBody.querySelectorAll('tr')).map(tr=>{
-            const td = tr.querySelectorAll('td')[0]; return td ? td.innerText.trim().toLowerCase() : '';
-          }).filter(Boolean));
-
-          const ansH  = Array.from(doc.querySelectorAll('h2')).find(h=>/Answer Key/i.test(h.textContent));
-          if(!ansH)  return 'Missing "Answer Key" section.';
-          const ansBody = ansH.parentElement.querySelector('table tbody');
-          if(!ansBody) return '"Answer Key" table body missing.';
-          const answers = Array.from(ansBody.querySelectorAll('tr')).map(tr=>{
-            const td = tr.querySelector('td'); return td ? td.innerText.trim().toLowerCase() : '';
-          }).filter(Boolean);
-          // ensure every Answer Key word is present in Vocabulary Used (English column)
-          for (const a of answers){
-            if (!usedEN.has(a)) return `Vocabulary Used must include all Answer Key entries. Missing: "${a}".`;
-          }
+        } else {
+          // FIB not requested → no blanks anywhere
+          if (/________/.test(doc.body.innerHTML)) return 'No blanks allowed when FIB is not selected.';
         }
-        return "";
-      }catch(e){ return ""; }
+
+        return '';
+      }catch(e){
+        return 'Malformed HTML for conversation output. Return a full HTML doc with valid Conversation tables.';
+      }
     }
 
-    genBtn.addEventListener('click', async ()=>{
+    $('c-gen').addEventListener('click', async ()=>{
       const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
-      await generateAndRender(buildConvoPrompt(), genBtn, statusEl, outputEl, convoValidator, 4);
-      await Speech.ensure();
-      injectGlobalTTSControlsForConvo(outputEl);
+      await generateAndRender(buildConvoPrompt(), genBtn, statusEl, outputEl, convoValidator);
     });
 
-    promptBtn.addEventListener('click', ()=>{
+    $('c-prompt').addEventListener('click', ()=>{
       const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
       copyText(buildConvoInstruction(), statusEl);
     });
-    copyBtn.addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
-    excelBtn.addEventListener('click', ()=>downloadAsExcel(outputEl,statusEl,$('c-topic').value||'Conversation'));
+    $('c-copy').addEventListener('click',()=>copyToClipboard(outputEl,statusEl));
+    $('c-excel').addEventListener('click', ()=>downloadAsExcel(outputEl,statusEl,$('c-topic').value||'Conversation'));
   })();
 
   /* =========================
-     Test (unchanged)
+     Test (safe render)
      ========================= */
   (function setupTest(){
     const testUI =
@@ -941,7 +857,7 @@ ${rawPrompt}
 
     const genBtn=$('t-gen'),excelBtn=$('t-excel'),copyBtn=$('t-copy'),statusEl=$('t-status'),outputEl=$('t-output');
 
-    genBtn.addEventListener('click', async ()=>{
+    $('t-gen').addEventListener('click', async ()=>{
       const v=$('t-vocab').value.trim(); if(!v){statusEl.textContent="Please paste a vocab list.";return;}
       const prompt = `<!DOCTYPE html>
 <!-- FCS TEST OUTPUT -->
