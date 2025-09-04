@@ -79,13 +79,13 @@
   function extractDocHTML(html){
     const parsed=new DOMParser().parseFromString(html,'text/html');
     let node = parsed.querySelector('.fcs-doc') || parsed.body || parsed.documentElement;
-    node.querySelectorAll('script').forEach(s=>s.remove()); // safety
+    node.querySelectorAll('script').forEach(s=>s.remove());
     return node.innerHTML || '';
   }
   function renderGenerated(html, container){
     const normalized = decodeIfEscaped(html);
     const safeInner = extractDocHTML(normalized);
-    container.innerHTML = safeInner || normalized; // fallback
+    container.innerHTML = safeInner || normalized;
   }
   const safeForScriptTemplate = s => String(s||'').replace(/<\/script/gi,'<\\/script');
 
@@ -118,6 +118,7 @@
     }
     return { ensure, speak };
   })();
+
   function addPerLineTTS(root){
     if(!root || !('speechSynthesis' in window)) return;
     root.querySelectorAll('table tbody tr').forEach(tr=>{
@@ -158,7 +159,6 @@
       outputEl.innerHTML="<h4>Please wait. AI is working...</h4>";
       let html = await callAPI(basePrompt);
 
-      // Validate + auto-retry up to maxRetries
       for (let attempt=0; attempt<maxRetries; attempt++){
         const err = validator ? validator(html) : "";
         if (!err) break;
@@ -254,6 +254,15 @@ ABSOLUTE COMPLIANCE: Meet the numeric ranges exactly without reducing requested 
     }
   }
 
+  /* ===== SHARED: cross-browser sentence splitter (no look-behind) ===== */
+  function splitIntoSentences(text){
+    const norm = String(text || '').replace(/\s+/g,' ').trim();
+    if(!norm) return [];
+    // Grab chunks ending with punctuation OR the last trailing text
+    const parts = norm.match(/[^.!?]+[.!?]?/g) || [];
+    return parts.map(s=>s.trim()).filter(Boolean);
+  }
+
   /* ===== Level rules (Conversation) ===== */
   function getLevelRulesLines(level){
     switch(String(level)){
@@ -268,7 +277,7 @@ ABSOLUTE COMPLIANCE: Meet the numeric ranges exactly without reducing requested 
   }
 
   /* =========================
-     Vocabulary (no content structure changes—added TTS + strict length validator)
+     Vocabulary
      ========================= */
   (function setupVocab(){
     const vocabUI =
@@ -360,7 +369,6 @@ ABSOLUTE COMPLIANCE: Meet the numeric ranges exactly without reducing requested 
       return presetRanges[planEl.value];
     }
 
-    // Prompt (copy)
     function buildVocabInstruction(){
       const {min,max}=currentRange();
       const topic=(topicEl.value||'').trim();
@@ -399,7 +407,6 @@ ABSOLUTE COMPLIANCE: Meet the numeric ranges exactly without reducing requested 
       ].join('\n');
     }
 
-    // HTML prompt
     function buildVocabPrompt(){
       const rawPrompt=buildVocabInstruction();
       const topic=safeForScriptTemplate((topicEl.value||'').trim());
@@ -458,7 +465,6 @@ ${rawPrompt}
 </div></body></html>`;
     }
 
-    // Strict count validator for vocab (uses Full Vocabulary Index rows)
     function vocabValidator(html){
       try{
         const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -470,7 +476,6 @@ ${rawPrompt}
         const rows = tbl.querySelectorAll('tr').length;
         const {min,max}=currentRange();
 
-        // crude: prevent sentences in index (periods at end of cells)
         const hasSentence = Array.from(tbl.querySelectorAll('td')).some(td=>/\.\s*$/.test(td.textContent.trim()));
         if (hasSentence) return 'Full Vocabulary Index must contain words/phrases only (no sentences). Remove periods.';
 
@@ -493,7 +498,7 @@ ${rawPrompt}
   })();
 
   /* =========================
-     Conversation (TTS + safe render + stricter FIB + strict length validator)
+     Conversation
      ========================= */
   (function setupConvo(){
     const convoUI =
@@ -576,7 +581,6 @@ ${rawPrompt}
     };
     const getLengthPreset = ()=> LENGTH_PRESETS[$('c-length').value || 'medium'] || LENGTH_PRESETS.medium;
 
-    // FIB selection logic
     const noneBox = $('c-fib-none');
     const mixedBox = $('c-fib-mixed');
     const fibBoxes = Array.from(document.querySelectorAll('#c-fib-group .fib-opt'));
@@ -776,7 +780,6 @@ ${rawPrompt}
 </html>`;
     }
 
-    // Strict validator: FIB + "words only" + per-turn sentence/word counts + exact #turns
     function convoValidator(html){
       try{
         const doc = new DOMParser().parseFromString(html, 'text/html');
@@ -784,7 +787,6 @@ ${rawPrompt}
         const expectedTurns = Math.max(1, Number($('c-turns').value)||10);
         const fib = getSelectedFIB();
 
-        // Check conversations
         const convSections = Array.from(doc.querySelectorAll('h2')).filter(h=>/^Conversation\s+\d+/i.test(h.textContent));
         if (!convSections.length) return 'Missing conversation sections.';
         for (const h of convSections){
@@ -798,12 +800,10 @@ ${rawPrompt}
             if (tds.length<2) return `${h.textContent}, row ${i+1}: needs two cells (English | Español).`;
             const checkCell = (txt,label)=>{
               const clean = txt.replace(/^\s*🔊\s*(EN|ES)\s*/,'').trim();
-              // rough sentence split
-              const sents = clean.split(/(?<=[.!?])\s+/).filter(s=>s.trim().length>0);
+              const sents = splitIntoSentences(clean);
               if (sents.length < L.minSent || sents.length > L.maxSent){
                 return `${h.textContent}, row ${i+1} (${label}): must have ${L.minSent}–${L.maxSent} sentences; found ${sents.length}.`;
               }
-              // min words per sentence (rough)
               for (let k=0;k<sents.length;k++){
                 const words = sents[k].replace(/[“”"()]/g,'').trim().split(/\s+/).filter(Boolean);
                 if (words.length < L.minWords) return `${h.textContent}, row ${i+1} (${label}), sentence ${k+1}: has ${words.length} words; needs ≥${L.minWords}.`;
@@ -815,7 +815,6 @@ ${rawPrompt}
           }
         }
 
-        // FIB checks or "none" sections checks
         if (fib.active){
           const fibH = Array.from(doc.querySelectorAll('h2')).find(h=>/Practice — Fill-in-the-Blank/i.test(h.textContent));
           if(!fibH) return 'Missing "Practice — Fill-in-the-Blank" section.';
@@ -844,13 +843,11 @@ ${rawPrompt}
       }catch(e){ return ""; }
     }
 
-    // Generate
     genBtn.addEventListener('click', async ()=>{
       const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
       await generateAndRender(buildConvoPrompt(), genBtn, statusEl, outputEl, convoValidator, 2);
     });
 
-    // Prompt / Copy / Excel
     promptBtn.addEventListener('click', ()=>{
       const topic=$('c-topic').value.trim(); if(!topic){statusEl.textContent="Enter a topic.";return;}
       copyText(buildConvoInstruction(), statusEl);
@@ -860,7 +857,7 @@ ${rawPrompt}
   })();
 
   /* =========================
-     Test (safe render; no TTS)
+     Test
      ========================= */
   (function setupTest(){
     const testUI =
@@ -879,7 +876,7 @@ ${rawPrompt}
         <div class="actions"><button id="t-gen" class="primary">Generate</button><button id="t-excel">Excel</button><button id="t-copy">Copy</button><div id="t-status" class="status"></div></div>
       </div>
       <div id="t-output" class="output-container"><p>Your test will appear here...</p></div>`;
-    $('gen-test').innerHTML=testUI);
+    $('gen-test').innerHTML=testUI;
 
     const genBtn=$('t-gen'),excelBtn=$('t-excel'),copyBtn=$('t-copy'),statusEl=$('t-status'),outputEl=$('t-output');
 
