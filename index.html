@@ -217,7 +217,7 @@
     return json.content;
   }
 
-  async function generateAndRender(basePrompt, button, statusEl, outputEl, validator, maxRetries=2){
+  async function generateAndRender(basePrompt, button, statusEl, outputEl, validator, maxRetries=4){
     try{
       button.disabled=true;
       statusEl.textContent="Generating...";
@@ -533,7 +533,7 @@ ${rawPrompt}
 
     $('v-gen').addEventListener('click', async ()=>{
       if(!topicEl.value.trim()){ $('v-status').textContent="Please enter a topic."; return; }
-      await generateAndRender(buildVocabPrompt(), $('v-gen'), $('v-status'), $('v-output'), vocabValidator, 4);
+      await generateAndRender(buildVocabPrompt(), $('v-gen'), $('v-status'), $('v-output'), vocabValidator, 2);
     });
     $('v-prompt').addEventListener('click', ()=>{
       if(!topicEl.value.trim()){ $('v-status').textContent="Please enter a topic."; return; }
