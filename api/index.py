@@ -7,7 +7,7 @@ from openai import OpenAI
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
 OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
 
-# If a provider wraps HTML in a code fence, unwrap it.
+# Unwrap code fences if the provider adds them.
 FENCE_RE = re.compile(r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
 
 class handler(BaseHTTPRequestHandler):
@@ -52,8 +52,7 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            # Allow a significantly larger output so the model can meet strict length requirements.
-            # You can override via env var: MODEL_MAX_TOKENS (kept below hard ceiling 16384 for safety).
+            # Larger budget to avoid truncation under strict length rules.
             max_tokens = min(int(os.getenv("MODEL_MAX_TOKENS", "6000")), 16384)
 
             completion = client.chat.completions.create(
