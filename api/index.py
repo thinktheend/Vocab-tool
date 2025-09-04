@@ -52,12 +52,12 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            # Enough budget to satisfy longer FIBs and bracketed names
-            max_tokens = min(int(os.getenv("MODEL_MAX_TOKENS", "6000")), 16384)
+            # Bigger budget for strict quantity & longer FIBs
+            max_tokens = min(int(os.getenv("MODEL_MAX_TOKENS", "8000")), 16384)
 
             completion = client.chat.completions.create(
                 model=os.getenv("OPENAI_MODEL", "gpt-4o"),
-                temperature=0.8,
+                temperature=0.4,  # lower = more compliant to counts
                 max_tokens=max_tokens,
                 messages=[
                     {
@@ -65,16 +65,18 @@ class handler(BaseHTTPRequestHandler):
                         "content": (
                             "You are an expert FCS assistant. Return ONLY full raw HTML (a valid document). "
                             "Strictly follow the embedded contract inside the user's HTML prompt. "
-                            "ABSOLUTE LENGTH COMPLIANCE: When ranges are provided (counts or sentences/words), "
-                            "produce at least the minimum and not more than the maximum. Do not under-deliver. "
+                            "ABSOLUTE LENGTH COMPLIANCE IS REQUIRED: when numeric ranges are provided, "
+                            "produce at least the minimum and not more than the maximum. "
                             "Conversation-specific constraints: "
+                            "• Conversations must not contain blanks/underscores (\"________\"). Only the FIB section may use blanks. "
                             "• Every sentence in BOTH columns must begin with a speaker name in brackets, e.g., \"[Ana] ...\" "
                             "• FIB rows must be ONE sentence per column; English colors EXACTLY one target with <span class=\"en\">…</span>; "
                             "  Spanish uses \"(English target) ________\" with parentheses immediately BEFORE the blank. "
                             "• Answer Key must be a single-column list of answer words (no numbering column). "
+                            "• \"Vocabulary Used\" must include all unique Answer Key entries at minimum, deduplicated, and be a two-column list (EN | ES). "
                             "Vocabulary generator constraints: "
                             "• Do NOT include any 'Full Vocabulary Index' section. "
-                            "• Section styling and span usage (<span class=\"en\">, <span class=\"es\">) must follow the contract. "
+                            "• Treat each table row as one item toward the requested total; target the upper bound. "
                             "Do NOT add explanations or code fences."
                         ),
                     },
