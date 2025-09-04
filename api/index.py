@@ -52,17 +52,23 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            # Single-shot HTML response.
+            # Allow a significantly larger output so the model can meet strict length requirements.
+            # You can override via env var: MODEL_MAX_TOKENS (kept below hard ceiling 16384 for safety).
+            max_tokens = min(int(os.getenv("MODEL_MAX_TOKENS", "6000")), 16384)
+
             completion = client.chat.completions.create(
                 model=os.getenv("OPENAI_MODEL", "gpt-4o"),
                 temperature=0.8,
-                max_tokens=min(int(os.getenv("MODEL_MAX_TOKENS", "1000")), 16384),
+                max_tokens=max_tokens,
                 messages=[
                     {
                         "role": "system",
                         "content": (
                             "You are an expert FCS assistant. Return ONLY full raw HTML (a valid document). "
                             "Strictly follow the embedded contract inside the user's HTML prompt. "
+                            "ABSOLUTE LENGTH COMPLIANCE: When ranges are provided (counts or sentences/words), "
+                            "produce at least the minimum and not more than the maximum. Do not under-deliver. "
+                            "If needed, compress prose while keeping counts intact. "
                             "Vocabulary generator rules (do not change UI/format): "
                             "• NOUNS: words/phrases only (no sentences) with subcategory header rows when required; "
                             "  the Spanish noun is wrapped in <span class=\"es\">…</span> (red). "
@@ -73,6 +79,9 @@ class handler(BaseHTTPRequestHandler):
                             "  (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>). "
                             "• ADVERBS: full sentences that reuse verbs, highlight ONLY the adverb "
                             "  (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>). "
+                            "• FIB (when present): English cell colors ONLY the target English word with <span class=\"en\">…</span>; "
+                            "  Spanish cell replaces the target Spanish word with \"________\" and puts the English translation "
+                            "  in parentheses immediately BEFORE the blank. "
                             "Common Phrases/Questions and the Full Vocabulary Index must follow the contract. "
                             "Do NOT add explanations or code fences."
                         ),
