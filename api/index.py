@@ -81,7 +81,7 @@ class handler(BaseHTTPRequestHandler):
                             "• FIB (when present): English cell colors ONLY the target English word with <span class=\"en\">…</span>; "
                             "  Spanish cell replaces the target Spanish word with \"________\" and puts the English translation "
                             "  in parentheses immediately BEFORE the blank. "
-                            "Common Phrases/Questions and the Full Vocabulary Index must follow the contract. "
+                            "Common Phrases/Questions must follow the contract. "
                             "Do NOT add explanations or code fences."
                         ),
                     },
