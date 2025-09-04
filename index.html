@@ -1,8 +1,3 @@
-Here’s a fixed, complete file with the audio speaker buttons restored for both generators and the “script showing on the page” issue resolved (by safely handling any `</script>` text inside model-generated HTML). I didn’t change the Vocabulary generator’s logic or output formatting—just re-enabled per-line TTS after generation and added the safety fix. Conversation generator also gets the TTS buttons. Excel export ignores the little speaker labels so your spreadsheets stay clean.
-
-> Replace your file with this as-is.
-
-```html
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1055,4 +1050,3 @@ Regenerate so that ALL constraints are satisfied EXACTLY. Do not change CSS clas
 </script>
 </body>
 </html>
-```
