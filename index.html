@@ -217,7 +217,7 @@
     return json.content;
   }
 
-  async function generateAndRender(basePrompt, button, statusEl, outputEl, validator, maxRetries=4){
+  async function generateAndRender(basePrompt, button, statusEl, outputEl, validator, maxRetries=2){
     try{
       button.disabled=true;
       statusEl.textContent="Generating...";
