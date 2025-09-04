@@ -7,7 +7,7 @@ from openai import OpenAI
 OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
 OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
 
-# Unwrap code fences if the provider adds them.
+# Unwrap code fences if a provider adds them.
 FENCE_RE = re.compile(r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
 
 class handler(BaseHTTPRequestHandler):
@@ -52,7 +52,7 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            # Larger budget to avoid truncation under strict length rules.
+            # Enough budget to satisfy longer FIBs and bracketed names
             max_tokens = min(int(os.getenv("MODEL_MAX_TOKENS", "6000")), 16384)
 
             completion = client.chat.completions.create(
@@ -67,21 +67,14 @@ class handler(BaseHTTPRequestHandler):
                             "Strictly follow the embedded contract inside the user's HTML prompt. "
                             "ABSOLUTE LENGTH COMPLIANCE: When ranges are provided (counts or sentences/words), "
                             "produce at least the minimum and not more than the maximum. Do not under-deliver. "
-                            "If needed, compress prose while keeping counts intact. "
-                            "Vocabulary generator rules (do not change UI/format): "
-                            "• NOUNS: words/phrases only (no sentences) with subcategory header rows when required; "
-                            "  the Spanish noun is wrapped in <span class=\"es\">…</span> (red). "
-                            "• VERBS: full sentences using He/She/It/They + is/are going to + [infinitive]; "
-                            "  highlight ONLY the verb (one <span class=\"en\">…</span> in the English cell, "
-                            "  one <span class=\"es\">…</span> in the Spanish cell). "
-                            "• ADJECTIVES: full sentences with is/are + adjective; highlight ONLY the adjective "
-                            "  (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>). "
-                            "• ADVERBS: full sentences that reuse verbs, highlight ONLY the adverb "
-                            "  (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>). "
-                            "• FIB (when present): English cell colors ONLY the target English word with <span class=\"en\">…</span>; "
-                            "  Spanish cell replaces the target Spanish word with \"________\" and puts the English translation "
-                            "  in parentheses immediately BEFORE the blank. "
-                            "Common Phrases/Questions and the Full Vocabulary Index must follow the contract. "
+                            "Conversation-specific constraints: "
+                            "• Every sentence in BOTH columns must begin with a speaker name in brackets, e.g., \"[Ana] ...\" "
+                            "• FIB rows must be ONE sentence per column; English colors EXACTLY one target with <span class=\"en\">…</span>; "
+                            "  Spanish uses \"(English target) ________\" with parentheses immediately BEFORE the blank. "
+                            "• Answer Key must be a single-column list of answer words (no numbering column). "
+                            "Vocabulary generator constraints: "
+                            "• Do NOT include any 'Full Vocabulary Index' section. "
+                            "• Section styling and span usage (<span class=\"en\">, <span class=\"es\">) must follow the contract. "
                             "Do NOT add explanations or code fences."
                         ),
                     },
