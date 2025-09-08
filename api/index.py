@@ -1,168 +1,218 @@
+# api/index.py
+# Vercel-compatible serverless handler using BaseHTTPRequestHandler.
+# Quantity improvements for Vocabulary ONLY; UI/format stay unchanged.
+
 import os
-import openai
-from flask import Flask, request, Response
+import re
+import json
+from http.server import BaseHTTPRequestHandler
+from openai import OpenAI
 
-# Configure OpenAI API (ensure API key is set in environment variable)
-openai.api_key = os.getenv("OPENAI_API_KEY")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
+OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
 
-app = Flask(__name__)
-# (If session usage is needed for conversation, a secret key would be set, not shown for brevity)
+# Unwrap code fences if the provider adds them.
+FENCE_RE = re.compile(r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
 
-def generate_vocabulary_list(topic: str, min_words: int, max_words: int, include_words_text: str = "",
-                              include_nouns: bool = True, include_verbs: bool = True,
-                              include_adjectives: bool = True, include_adverbs: bool = True,
-                              include_phrases: bool = True, include_questions: bool = True) -> str:
-    """Generate a formatted Spanish vocabulary list (HTML string) for the given topic and settings."""
-    # 1. Determine the exact midpoint of the range for total vocabulary count
-    min_val = int(min_words)
-    max_val = int(max_words)
-    if min_val > max_val:
-        # Swap if inputs were inverted
-        min_val, max_val = max_val, min_val
-    total_vocab = (min_val + max_val) // 2  # use floor if not an integer midpoint
-    
-    # 2. Calculate how many words to allocate to each selected section (using weighted distribution)
-    # Weights: Nouns=4, Verbs=4, Adjectives=1, Adverbs=1 (only include if that section is enabled)
-    section_weights = []
-    if include_nouns:
-        section_weights.append(("Nouns", 4))
-    if include_verbs:
-        section_weights.append(("Verbs", 4))
-    if include_adjectives:
-        section_weights.append(("Adjectives", 1))
-    if include_adverbs:
-        section_weights.append(("Adverbs", 1))
-    if not section_weights:
-        raise ValueError("No vocabulary sections selected")  # at least one section should be checked
-    
-    total_weight = sum(w for _, w in section_weights)
-    # Determine counts per section such that sum equals total_vocab
-    section_counts = {}
-    allocated = 0
-    for i, (section, weight) in enumerate(section_weights):
-        if i < len(section_weights) - 1:
-            # integer division for each, last section gets the remainder
-            count = (total_vocab * weight) // total_weight
-            section_counts[section] = count
-            allocated += count
+# Detect which tool is invoking us (based on the HTML prompt banner)
+IS_VOCAB_RE = re.compile(r"FCS\s+VOCABULARY\s+OUTPUT", re.IGNORECASE)
+
+# Parse "Vocabulary range: X–Y ..." from the embedded Markdown in the prompt.
+RANGE_RE = re.compile(
+    r"Vocabulary\s+range:\s*(\d+)\s*[\-\u2010-\u2015\u2212]\s*(\d+)",
+    re.IGNORECASE,
+)
+
+def parse_vocab_range(prompt_text: str):
+    m = RANGE_RE.search(prompt_text or "")
+    if not m:
+        return (None, None)
+    lo, hi = int(m.group(1)), int(m.group(2))
+    if lo > hi:
+        lo, hi = hi, lo
+    return (lo, hi)
+
+def midpoint(lo: int, hi: int) -> int:
+    return max(lo, min(hi, (lo + hi) // 2))
+
+def quotas_30_30_15_15(total: int):
+    """
+    Return per-section targets (nouns, verbs, adjectives, adverbs) that sum to 'total',
+    using 30%/30%/15%/15% with rounding reconciliation.
+    """
+    n = round(total * 0.30)
+    v = round(total * 0.30)
+    a = round(total * 0.15)
+    d = round(total * 0.15)
+    diff = total - (n + v + a + d)
+    # Distribute any remainder N→V→A→D
+    order = ["n", "v", "a", "d"]
+    i = 0
+    while diff != 0:
+        if diff > 0:
+            tgt = order[i]
+            if tgt == "n": n += 1
+            elif tgt == "v": v += 1
+            elif tgt == "a": a += 1
+            else: d += 1
+            diff -= 1
         else:
-            section_counts[section] = total_vocab - allocated  # remainder to last section
-    
-    # 3. Build the prompt with all instructions and constraints
-    prompt_lines = []
-    prompt_lines.append(f"Topic: {topic}")
-    prompt_lines.append(f"Total unique Spanish vocabulary words (across all sections): {total_vocab}.")
-    prompt_lines.append("Sections and word counts:")
-    for section, weight in section_weights:
-        count = section_counts.get(section, 0)
-        if section == "Nouns":
-            prompt_lines.append(f"- {section}: {count} nouns, listed as English – Spanish pairs.")
-        elif section == "Verbs":
-            prompt_lines.append(f"- {section}: {count} verbs, presented in example sentences (English sentence with Spanish translation).")
-        elif section == "Adjectives":
-            prompt_lines.append(f"- {section}: {count} adjectives, demonstrated in example sentences (English sentence with Spanish translation).")
-        elif section == "Adverbs":
-            prompt_lines.append(f"- {section}: {count} adverbs, demonstrated in example sentences (English sentence with Spanish translation).")
-    if include_phrases:
-        prompt_lines.append("- Common Phrases: include a few useful phrases (e.g. ~5) relevant to the topic, with English and Spanish.")
-    if include_questions:
-        prompt_lines.append("- Common Questions: include a few useful questions (e.g. ~5) someone might ask for this topic, with English and Spanish.")
-    prompt_lines.append("Formatting and requirements:")
-    prompt_lines.append("* Provide the vocabulary list as an HTML <table> with two columns: English and Español.")
-    prompt_lines.append("* Begin the table with a header row: <th>English</th> and <th>Español</th>.")
-    prompt_lines.append("* Within the table, group words by section. For each section, first output a full-width row as a section header with the section name and the number of items, e.g. 'Nouns (" + str(section_counts.get('Nouns',0)) + ")'.")
-    prompt_lines.append("* Under each section header, list each vocabulary item on its own table row. Column 1: English word or phrase; Column 2: Spanish translation.")
-    prompt_lines.append("* **Nouns:** Include the definite article with each Spanish noun ('el' or 'la'), and if a noun has a feminine form, show it in parentheses. Example: The receptionist – <span class=\"es\">El recepcionista (la recepcionista)</span>.")
-    prompt_lines.append("* **Verbs, Adjectives, Adverbs:** Do NOT list as isolated words. Instead, present each in a meaningful example sentence. In the table, the English column should have an English sentence and the Spanish column the Spanish translation. **Highlight the Spanish vocabulary word** in each sentence by wrapping it in `<span class=\"es\">...</span>`.")
-    prompt_lines.append("* Ensure **all Spanish vocabulary words** (the new words to learn) are wrapped in `<span class=\"es\">...</span>` in the table. Do not use the span for common words that are not part of the vocabulary list.")
-    prompt_lines.append(f"* The total number of distinct Spanish words in `<span class='es'>` across all sections must be exactly **{total_vocab}**. **No duplicates**: do not repeat any Spanish vocabulary word in more than one section.")
-    if include_words_text:
-        # Include any user-specified vocabulary words
-        # Split by commas/newlines and clean
-        import re
-        user_words = [w.strip() for w in re.split(r'[\n,;]+', include_words_text) if w.strip()]
-        if user_words:
-            prompt_lines.append("* Include **all** of the following specific words in the list (use the appropriate English/Spanish form and put in the correct section): " + ", ".join(user_words) + ". These count toward the total and should not be duplicated across sections.")
-    prompt_lines.append("* **Common Phrases / Questions (if included):** After the table, output these sections with each phrase or question on a separate line (English sentence, then Spanish translation on the next line). If a Spanish translation contains a vocabulary word from the list, wrap that word in `<span class=\"es\">...</span>`. Do not highlight words that are not in the main list.")
-    prompt_lines.append("* Use at most ~20% of the vocabulary words in the phrases/questions (limited reuse). Each vocabulary word should appear at most once in the Phrases section and at most once in the Questions section.")
-    prompt_lines.append("* Output nothing except the formatted vocabulary list, phrases, and questions. **No explanations, no additional commentary.**")
-    full_prompt = "\n".join(prompt_lines)
-    
-    # 4. Call the OpenAI GPT-4 API with the constructed prompt
-    messages = [
-        {"role": "system", "content": "You are a Spanish vocabulary list generator. Follow the format and requirements strictly."},
-        {"role": "user", "content": full_prompt}
-    ]
-    response = openai.ChatCompletion.create(
-        model="gpt-4",
-        messages=messages,
-        temperature=0.8  # user-defined decoding parameter
-        # (no frequency_penalty or presence_penalty specified as per instructions)
-    )
-    generated_text = response['choices'][0]['message']['content']
-    
-    # 5. Prepend the topic header and return the complete HTML content
-    final_html = f"<h2>Vocabulary — {topic}</h2>\n" + generated_text
-    return final_html
+            tgt = order[i]
+            if tgt == "n" and n > 0: n -= 1; diff += 1
+            elif tgt == "v" and v > 0: v -= 1; diff += 1
+            elif tgt == "a" and a > 0: a -= 1; diff += 1
+            elif tgt == "d" and d > 0: d -= 1; diff += 1
+        i = (i + 1) % 4
+    return n, v, a, d
 
-# Route for generating vocabulary (POST)
-@app.route("/generate_vocabulary", methods=["POST"])
-def generate_vocabulary():
-    # Extract form inputs
-    topic = request.form.get("topic", "").strip()
-    min_range = request.form.get("min", "").strip() or request.form.get("min_words", "").strip()
-    max_range = request.form.get("max", "").strip() or request.form.get("max_words", "").strip()
-    include_words_text = request.form.get("include_words", "").strip()
-    # Check which sections are selected
-    include_nouns = bool(request.form.get("nouns"))
-    include_verbs = bool(request.form.get("verbs"))
-    include_adjectives = bool(request.form.get("adjectives"))
-    include_adverbs = bool(request.form.get("adverbs"))
-    include_phrases = bool(request.form.get("phrases")) or bool(request.form.get("common_phrases"))
-    include_questions = bool(request.form.get("questions")) or bool(request.form.get("common_questions"))
-    # Generate the vocabulary list HTML
-    try:
-        result_html = generate_vocabulary_list(topic, min_range, max_range, include_words_text,
-                                               include_nouns, include_verbs,
-                                               include_adjectives, include_adverbs,
-                                               include_phrases, include_questions)
-    except Exception as e:
-        # Return error as HTTP 400
-        return Response(f"Error generating vocabulary: {e}", status=400)
-    # Return the generated HTML content
-    return Response(result_html, mimetype="text/html")
+def build_system_message(base_system: str, user_prompt: str) -> str:
+    """
+    If this is a Vocabulary prompt and we can read the range, append a STRICT contract
+    that forces one-shot midpoint counts while preserving the front-end skeleton.
+    """
+    if not IS_VOCAB_RE.search(user_prompt or ""):
+        return base_system  # conversation/test: unchanged
 
-# Conversation tab logic (unchanged)
-conversation_history = {}  # simple in-memory store: per-session chat history
+    lo, hi = parse_vocab_range(user_prompt)
+    if lo is None or hi is None:
+        return base_system
 
-@app.route("/conversation", methods=["POST"])
-def conversation():
-    user_message = request.form.get("message", "").strip()
-    session_id = request.form.get("session_id", "default")
-    if not user_message:
-        return Response("No message provided", status=400)
-    # Initialize history for this session if not exists
-    if session_id not in conversation_history:
-        conversation_history[session_id] = []
-        # (Optional: can add a system message or persona initialization here if needed)
-    history = conversation_history[session_id]
-    # Append user message
-    history.append({"role": "user", "content": user_message})
-    try:
-        # Use the same model as before (assuming GPT-3.5 for conversation unless specified otherwise)
-        chat_response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo", 
-            messages=history,
-            temperature=0.8
-        )
-    except Exception as e:
-        return Response(f"Error in conversation: {e}", status=500)
-    assistant_reply = chat_response['choices'][0]['message']['content']
-    # Append assistant reply to history
-    history.append({"role": "assistant", "content": assistant_reply})
-    return Response(assistant_reply, mimetype="text/plain")
+    target_total = midpoint(lo, hi)
+    n, v, a, d = quotas_30_30_15_15(target_total)
 
-# ... (Any other routes or logic in the original file would remain here, unchanged) ...
+    # Contract focuses on QUANTITY ONLY; NO UI/format changes.
+    contract = f"""
 
-if __name__ == "__main__":
-    app.run(debug=True)
+STRICT ONE-SHOT COUNTING CONTRACT (Vocabulary ONLY; do NOT change UI/format):
+• TARGET TOTAL (sections 1–4 only): EXACTLY {target_total} Spanish vocabulary items counted by
+  the number of <span class="es">…</span> target words in Nouns, Verbs, Adjectives, Adverbs.
+• PER-SECTION QUOTAS (enforce exactly):
+  – Nouns: {n}
+  – Verbs: {v}
+  – Adjectives: {a}
+  – Adverbs: {d}
+• OUTPUT BOUNDARIES — CRITICAL:
+  – Use the HTML skeleton provided in the user's prompt AS-IS.
+  – Insert ONLY <tr> row content into the existing <tbody> of each section.
+  – Do NOT print any raw tag names or text outside the document (no stray “<td> …” text).
+  – Do NOT add/remove sections, headers, tables, or attributes. No commentary or notes.
+• HIGHLIGHTING / WHAT COUNTS:
+  – Count ONLY the red Spanish target words wrapped in <span class="es">…</span> in sections 1–4.
+  – Common Phrases/Questions may reuse vocabulary, but they do NOT count toward the total.
+  – Avoid duplicates within a section; prefer unique targets. Across sections, use distinct targets.
+• LINGUISTIC RULES (unchanged UI/format):
+  – Nouns: word/phrase entries only (no sentences). Include articles; if both genders exist, show feminine in parentheses (prefer masculine).
+  – Verbs: sentences “He/She/It/They + is/are going to + [infinitive]”; highlight ONLY the verb once in EN/ES cells.
+  – Adjectives: sentences with “is/are + adjective”; highlight ONLY the adjective once in EN/ES cells.
+  – Adverbs: reuse verbs in sentences; highlight ONLY the adverb once in EN/ES cells.
+• SELF-CHECK BEFORE SENDING:
+  – Ensure the exact per-section quotas and the exact grand total are satisfied in sections 1–4.
+  – Ensure valid, well-formed HTML that fits the provided skeleton.
+"""
+
+    return base_system + contract
+
+
+class handler(BaseHTTPRequestHandler):
+    def _send_cors_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS, GET")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._send_cors_headers()
+        self.end_headers()
+
+    def do_GET(self):
+        self.send_response(200)
+        self._send_cors_headers()
+        self.send_header("Content-type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
+
+    def do_POST(self):
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(content_length) if content_length else b"{}"
+
+            try:
+                data = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                raise ValueError("Invalid JSON in request body.")
+
+            prompt = (data.get("prompt") or "").strip()
+            if not prompt:
+                raise ValueError("Missing 'prompt' in request body.")
+
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("Server configuration error: OPENAI_API_KEY is not set.")
+
+            client = OpenAI(
+                api_key=api_key,
+                base_url=OPENAI_BASE_URL or None,
+                organization=OPENAI_ORG_ID or None,
+            )
+
+            # Larger budget to avoid truncation under strict length rules.
+            max_tokens = min(int(os.getenv("MODEL_MAX_TOKENS", "7000")), 16384)
+
+            # Base system message = your last known-good text (unchanged)
+            base_system = (
+                "You are an expert FCS assistant. Return ONLY full raw HTML (a valid document). "
+                "Strictly follow the embedded contract inside the user's HTML prompt. "
+                "ABSOLUTE LENGTH COMPLIANCE: When ranges are provided (counts or sentences/words), "
+                "produce at least the minimum and not more than the maximum. Do not under-deliver. "
+                "If needed, compress prose while keeping counts intact. "
+                "Vocabulary generator rules (do not change UI/format): "
+                "• NOUNS: words/phrases only (no sentences) with subcategory header rows when required; "
+                "  the Spanish noun is wrapped in <span class=\"es\">…</span> (red). "
+                "• VERBS: full sentences using He/She/It/They + is/are going to + [infinitive]; "
+                "  highlight ONLY the verb (one <span class=\"en\">…</span> in the English cell, "
+                "  one <span class=\"es\">…</span> in the Spanish cell). "
+                "• ADJECTIVES: full sentences with is/are + adjective; highlight ONLY the adjective "
+                "  (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>). "
+                "• ADVERBS: full sentences that reuse verbs, highlight ONLY the adverb "
+                "  (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>). "
+                "• FIB (when present): English cell colors ONLY the target English word with <span class=\"en\">…</span>; "
+                "  Spanish cell replaces the target Spanish word with its English translation in parentheses (no blank line). "
+                "Common Phrases/Questions must follow the contract. "
+                "Do NOT add explanations or code fences."
+            )
+
+            # Add the vocabulary count contract (only when the prompt is the Vocab generator)
+            system_message = build_system_message(base_system, prompt)
+
+            completion = client.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+                temperature=0.8,                 # keep your preferred decoding
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+
+            ai_content = (completion.choices[0].message.content or "").strip()
+            # Unwrap code fences if present
+            m = FENCE_RE.match(ai_content)
+            if m:
+                ai_content = m.group(1).strip()
+
+            self.send_response(200)
+            self._send_cors_headers()
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"content": ai_content}).encode("utf-8"))
+
+        except Exception as e:
+            print(f"AN ERROR OCCURRED: {e}")
+            self.send_response(500)
+            self._send_cors_headers()
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "error": "An internal server error occurred.",
+                "details": str(e)
+            }).encode("utf-8"))
