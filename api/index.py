@@ -1,172 +1,374 @@
+# api/index.py
+# Vercel-compatible serverless handler using BaseHTTPRequestHandler.
+# Quantity enforcement preserved; UI/format unchanged.
+
 import os
 import re
-import openai
-from flask import Flask, request, render_template
+import json
+from http.server import BaseHTTPRequestHandler
+from openai import OpenAI
 
-app = Flask(__name__)
-openai.api_key = os.getenv("OPENAI_API_KEY")
+OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL")
+OPENAI_ORG_ID = os.environ.get("OPENAI_ORG_ID")
 
-# Configuration: preserve any existing settings for model and quotas
-MODEL = "gpt-4"  # Using GPT-4o for generation (unchanged)
-# (Assume other configuration variables like section quotas, prompts, etc. are defined above)
+# Unwrap code fences if the provider adds them.
+FENCE_RE = re.compile(r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$", re.IGNORECASE)
 
-@app.route('/generate', methods=['POST'])
-def generate_vocabulary():
-    # Get user inputs from form (e.g., topic and word count range)
-    topic = request.form.get('topic')
-    min_words = int(request.form.get('min_words', 0))
-    max_words = int(request.form.get('max_words', 0))
-    if min_words <= 0 or max_words < min_words:
-        return "Invalid word count range", 400
+# Detect which tool is invoking us (based on the HTML prompt banner)
+IS_VOCAB_RE = re.compile(r"FCS\s+VOCABULARY\s+OUTPUT", re.IGNORECASE)
 
-    # Determine the target number of vocabulary words as the midpoint of the range (quantity enforcement unchanged)
-    total_target = (min_words + max_words) // 2
-    # Preserve section quotas as per original logic (no changes made here)
-    # For example, if quotas are defined as a percentage or fixed counts per section:
-    # nouns_target = int(total_target * NOUNS_RATIO)
-    # verbs_target = int(total_target * VERBS_RATIO)
-    # adj_target = ...
-    # adv_target = ...
-    # (The exact quota logic is assumed to be defined elsewhere or above)
-    nouns_target = ...  # (placeholder for original logic)
-    verbs_target = ...  # (placeholder for original logic)
-    adjs_target = ...   # (placeholder for original logic)
-    advs_target = ...   # (placeholder for original logic)
+# Parse "Vocabulary range: X–Y ..." from the embedded Markdown in the prompt.
+RANGE_RE = re.compile(
+    r"Vocabulary\s+range:\s*(\d+)\s*[\-\u2010-\u2015\u2212]\s*(\d+)",
+    re.IGNORECASE,
+)
 
-    # Prepare prompts for GPT-4o for each section (not changed)
-    # For example:
-    prompt_nouns = f"List {nouns_target} useful Spanish nouns (with articles) for the topic '{topic}', with English translations."
-    prompt_verbs = f"List {verbs_target} useful Spanish verbs (in context sentences) for the topic '{topic}', with English translations."
-    # ... similarly for adjectives, adverbs, etc.
-    # (Exact prompt phrasing as originally used is assumed to be retained)
+def parse_vocab_range(prompt_text: str):
+    m = RANGE_RE.search(prompt_text or "")
+    if not m:
+        return (None, None)
+    lo, hi = int(m.group(1)), int(m.group(2))
+    if lo > hi:
+        lo, hi = hi, lo
+    return (lo, hi)
 
-    # Call GPT-4o to generate each section (using the same logic as before)
-    try:
-        nouns_response = openai.ChatCompletion.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt_nouns}]
+def midpoint(lo: int, hi: int) -> int:
+    return max(lo, min(hi, (lo + hi) // 2))
+
+def quotas_30_30_15_15(total: int):
+    """Return per-section targets (nouns, verbs, adjectives, adverbs) that sum to 'total'."""
+    n = round(total * 0.30)
+    v = round(total * 0.30)
+    a = round(total * 0.15)
+    d = round(total * 0.15)
+    diff = total - (n + v + a + d)
+    order = ["n", "v", "a", "d"]
+    i = 0
+    while diff != 0:
+        tgt = order[i]
+        if diff > 0:
+            if tgt == "n": n += 1
+            elif tgt == "v": v += 1
+            elif tgt == "a": a += 1
+            else: d += 1
+            diff -= 1
+        else:
+            if tgt == "n" and n > 0: n -= 1; diff += 1
+            elif tgt == "v" and v > 0: v -= 1; diff += 1
+            elif tgt == "a" and a > 0: a -= 1; diff += 1
+            elif tgt == "d" and d > 0: d -= 1; diff += 1
+        i = (i + 1) % 4
+    return n, v, a, d
+
+def phrases_questions_row_targets(total_vocab_midpoint: int):
+    """
+    Compute required minimum rows for Common Phrases and Common Questions.
+    Floor 10; scale gently with total vocab (does not affect vocab count).
+    """
+    rows = max(10, min(30, round(total_vocab_midpoint / 8)))
+    return rows, rows
+
+def build_system_message(base_system: str, user_prompt: str) -> str:
+    """
+    If this is a Vocabulary prompt and we can read the range, append a STRICT contract
+    that forces one-shot midpoint counts while preserving the front-end skeleton,
+    and require non-empty, scaled Common Phrases/Questions.
+    """
+    if not IS_VOCAB_RE.search(user_prompt or ""):
+        return base_system  # Conversation/Test: unchanged
+
+    lo, hi = parse_vocab_range(user_prompt)
+    if lo is None or hi is None:
+        return base_system
+
+    target_total = midpoint(lo, hi)
+    n, v, a, d = quotas_30_30_15_15(target_total)
+    phrases_min, questions_min = phrases_questions_row_targets(target_total)
+    max_reuse = max(1, (target_total * 20 + 99) // 100)  # ceil(20% of total)
+
+    # Contract focuses on QUANTITY for sections 1–4 and adds mandatory
+    # population of Common Phrases/Questions without affecting the count.
+    contract = f"""
+
+STRICT ONE-SHOT COUNTING CONTRACT (Vocabulary ONLY; do NOT change UI/format):
+• TARGET TOTAL (sections 1–4 only): EXACTLY {target_total} Spanish vocabulary items counted by
+  the number of <span class="es">…</span> target words in Nouns, Verbs, Adjectives, Adverbs.
+• PER-SECTION QUOTAS (enforce exactly):
+  – Nouns: {n}
+  – Verbs: {v}
+  – Adjectives: {a}
+  – Adverbs: {d}
+• OUTPUT BOUNDARIES — CRITICAL:
+  – Use the HTML skeleton provided in the user's prompt AS-IS.
+  – Insert ONLY <tr> row content into the existing <tbody> of each section.
+  – Do NOT print extra text outside the document. No commentary or code fences.
+• COMMON PHRASES & COMMON QUESTIONS — MANDATORY:
+  – Populate BOTH sections with table rows inside their existing <tbody>.
+  – Minimum rows: Common Phrases ≥ {phrases_min}; Common Questions ≥ {questions_min}.
+  – Reuse only vocabulary from sections 1–4 (no new vocabulary). Total distinct reused words
+    across BOTH sections combined must be ≤ {max_reuse} (≈20% of {target_total}).
+  – Rows in these sections do NOT count toward the {target_total} total.
+• HIGHLIGHTING / WHAT COUNTS:
+  – Count ONLY the red Spanish target words wrapped in <span class="es">…</span> in sections 1–4.
+  – Nouns: Spanish cell uses article; IF a noun commonly has both genders, show masculine first
+    and append the feminine in parentheses, e.g., el médico (la médica), el cliente (la cliente).
+  – Verbs: Sentences use “He/She/It/They + is/are going to + [infinitive]”.
+    HIGHLIGHT ONLY the infinitive verb token (e.g., facturar, despegar, aterrizar).
+    NEVER wrap “voy/vas/va/vamos/vais/van a” in red.
+    Example (ES cell):
+      Él va a <span class="es">facturar</span> su equipaje.
+      Ellos van a <span class="es">aterrizar</span> pronto.
+  – Adjectives: sentences with “is/are + adjective”; highlight ONLY the adjective.
+  – Adverbs: sentences that reuse verbs; highlight ONLY the adverb.
+• SELF-CHECK BEFORE SENDING:
+  – Ensure the exact per-section quotas and the exact grand total are satisfied in sections 1–4.
+  – Ensure BOTH Common sections meet their row minimums and only reuse allowed vocabulary.
+  – Ensure well-formed HTML that fits the provided skeleton.
+"""
+    return base_system + contract
+
+
+# -----------------------
+# Post-processing helpers
+# -----------------------
+
+_VOWEL_MAP = str.maketrans("áéíóúÁÉÍÓÚ", "aeiouAEIOU")
+
+def derive_feminine(base: str) -> str:
+    """Simple heuristic for feminine forms."""
+    w = base.strip()
+    if not w:
+        return base
+    raw = w.translate(_VOWEL_MAP)  # strip acute accents for transforms
+    lower = raw.lower()
+
+    if lower.endswith("o"):
+        return raw[:-1] + "a"
+    if lower.endswith(("or",)):
+        return raw + "a"
+    if lower.endswith(("on", "in", "an")):  # campeón -> campeona; capitán -> capitana
+        return raw + "a"
+    if lower.endswith(("ista", "ante", "ente", "e")):
+        return raw  # invariant
+    # default: return as-is (we won't guess)
+    return raw
+
+# Limit replacements to a specific section window
+def _replace_in_section(html: str, section_title_regex: str, replacer) -> str:
+    m = re.search(rf'(<h2>\s*{section_title_regex}\s*</h2>)(.*?)(</div>)',
+                  html, flags=re.IGNORECASE | re.DOTALL)
+    if not m:
+        return html
+    head, body, tail = m.group(1), m.group(2), m.group(3)
+    new_body = replacer(body)
+    return html.replace(m.group(0), f"{head}{new_body}{tail}", 1)
+
+def fix_verbs_highlight(body_html: str) -> str:
+    """
+    Inside Verbs section tbody, ensure only the infinitive is red, not 'voy/vas/va/vamos/vais/van a'.
+    """
+
+    # Only operate inside the <tbody>...</tbody> range(s)
+    def fix_one_tbody(tb):
+        s = tb
+
+        # Move highlight from the whole chunk to just the infinitive after 'a '
+        # e.g. <span class="es">Él va a facturar su equipaje</span>
+        # -> Él va a <span class="es">facturar</span> su equipaje
+        s = re.sub(
+            r'<span\s+class="es">([^<]*?)\b(voy|vas|va|vamos|vais|van)\s+a\s+([a-záéíóúüñ]+)\b([^<]*?)</span>',
+            r'\1\2 a <span class="es">\3</span>\4',
+            s, flags=re.IGNORECASE
         )
-        verbs_response = openai.ChatCompletion.create(
-            model=MODEL,
-            messages=[{"role": "user", "content": prompt_verbs}]
+        # Case: <span class="es">va a facturar</span> -> va a <span class="es">facturar</span>
+        s = re.sub(
+            r'<span\s+class="es">\s*(voy|vas|va|vamos|vais|van)\s+a\s+([a-záéíóúüñ]+)\s*</span>',
+            r'\1 a <span class="es">\2</span>',
+            s, flags=re.IGNORECASE
         )
-        # ... (calls for adjectives, adverbs, common phrases, questions as needed)
-    except openai.Error as e:
-        return f"Error generating content: {e}", 500
+        # Case: <span class="es">va a</span> facturar -> va a <span class="es">facturar</span>
+        s = re.sub(
+            r'<span\s+class="es">\s*(voy|vas|va|vamos|vais|van)\s+a\s*</span>\s*([a-záéíóúüñ]+)',
+            r'\1 a <span class="es">\2</span>',
+            s, flags=re.IGNORECASE
+        )
+        # Case: <span class="es">va</span> a facturar -> va a <span class="es">facturar</span>
+        s = re.sub(
+            r'<span\s+class="es">\s*(voy|vas|va|vamos|vais|van)\s*</span>\s*a\s+([a-záéíóúüñ]+)',
+            r'\1 a <span class="es">\2</span>',
+            s, flags=re.IGNORECASE
+        )
+        return s
 
-    # Extract the content from GPT responses (assuming GPT returns a formatted list or lines)
-    nouns_content = nouns_response['choices'][0]['message']['content']
-    verbs_content = verbs_response['choices'][0]['message']['content']
-    # ... (similarly for other sections)
+    def repl(section_html):
+        # apply for each tbody in the section (usually one)
+        return re.sub(
+            r'(<tbody[^>]*>)(.*?)(</tbody>)',
+            lambda m: f'{m.group(1)}{fix_one_tbody(m.group(2))}{m.group(3)}',
+            section_html, flags=re.IGNORECASE | re.DOTALL
+        )
 
-    # Parse or split the GPT output into lists of (English, Spanish) pairs for each section.
-    # Assuming GPT output each item on a new line in "English - Spanish" format or similar.
-    nouns_pairs = []
-    for line in nouns_content.splitlines():
-        # e.g., line format: "The doctor - el médico"
-        if not line.strip():
-            continue
-        parts = re.split(r'\s*-\s*', line, maxsplit=1)
-        if len(parts) == 2:
-            eng, spa = parts[0].strip(), parts[1].strip()
-            nouns_pairs.append((eng, spa))
-    verbs_pairs = []
-    for line in verbs_content.splitlines():
-        # e.g., line format: "He is going to check in his luggage. - Él va a facturar su equipaje."
-        if not line.strip():
-            continue
-        parts = re.split(r'\s*-\s*', line, maxsplit=1)
-        if len(parts) == 2:
-            eng, spa = parts[0].strip(), parts[1].strip()
-            verbs_pairs.append((eng, spa))
-    # ... (similar parsing for adjectives, adverbs, etc.)
+    return _replace_in_section(body_html, r'Verbs\s+in\s+Sentences', repl)
 
-    # Now build the HTML output, section by section.
-    output_html = ""
+def add_feminine_in_nouns(body_html: str) -> str:
+    """
+    Inside Nouns section tbody, append feminine in parentheses when cell is
+    just 'el X' and no parentheses exist yet.
+    """
+    def fix_one_tbody(tb):
+        s = tb
 
-    # Nouns Section
-    if nouns_pairs:
-        output_html += f"<h2>Nouns ({len(nouns_pairs)})</h2>\n<table>\n"
-        for eng, spa in nouns_pairs:
-            # >>> If the noun has a gender counterpart, combine forms
-            if spa.lower().startswith("el "):
-                # Derive feminine form of the noun
-                masculine_article = "el"
-                noun_base = spa[len("el "):]  # strip "el " prefix
-                fem_article = "la"
-                fem_base = noun_base  # default assume same base
-                if noun_base.endswith("o"):
-                    fem_base = noun_base[:-1] + "a"
-                elif noun_base.endswith(("or", "ón", "ín", "án")):
-                    # Add 'a' to form feminine, and remove accent if present on penultimate syllable
-                    # e.g., capitán -> capitana, león -> leona, profesor -> profesora
-                    # Remove accent from the base if it has one (to handle words like capitán, francés, etc.)
-                    # This removes any acute accent marks in the word
-                    fem_base = re.sub(r'á', 'a', noun_base)
-                    fem_base = re.sub(r'é', 'e', fem_base)
-                    fem_base = re.sub(r'í', 'i', fem_base)
-                    fem_base = re.sub(r'ó', 'o', fem_base)
-                    fem_base = re.sub(r'ú', 'u', fem_base)
-                    fem_base += "a"
-                elif noun_base.endswith(("ista", "ante", "ente")) or noun_base.endswith("e"):
-                    # Invariant or neutral-ending noun (use same base for feminine)
-                    fem_base = noun_base
-                else:
-                    # Default: just add 'a'
-                    fem_base = noun_base + "a"
-                spa_display = f'<span class="es">{masculine_article} {noun_base}</span> ({fem_article} <span class="es">{fem_base}</span>)'
-            elif spa.lower().startswith("la "):
-                # If we have a feminine form given and no masculine present, derive masculine
-                fem_article = "la"
-                noun_base = spa[len("la "):]
-                masculine_article = "el"
-                masc_base = noun_base
-                if noun_base.endswith("a") and not noun_base.endswith(("ista", "ta")):
-                    # Replace final 'a' with 'o' for masculine (for common cases like médica -> médico)
-                    masc_base = noun_base[:-1] + "o"
-                elif noun_base.endswith("ora") and noun_base[:-1].endswith("or"):
-                    # If feminine ends in 'ora' (like enfermera), masculine ends in 'or'
-                    masc_base = noun_base[:-1]  # remove the trailing 'a', e.g., "enfermera" -> "enfermer"
-                elif noun_base.endswith(("ista", "ante", "ente")) or noun_base.endswith("e"):
-                    masc_base = noun_base  # same form for masculine
-                else:
-                    masc_base = noun_base  # default to same if unsure
-                # Remove any accent in masculine base if present before adding article (similar accent handling as above)
-                masc_base = re.sub(r'á', 'a', masc_base)
-                masc_base = re.sub(r'é', 'e', masc_base)
-                masc_base = re.sub(r'í', 'i', masc_base)
-                masc_base = re.sub(r'ó', 'o', masc_base)
-                masc_base = re.sub(r'ú', 'u', masc_base)
-                spa_display = f'<span class="es">{masculine_article} {masc_base}</span> ({fem_article} <span class="es">{noun_base}</span>)'
-            else:
-                # No gendered article detected, just output as is (e.g., plural or no article given)
-                spa_display = f'<span class="es">{spa}</span>'
-            output_html += f"<tr><td>{eng}</td><td>{spa_display}</td></tr>\n"
-        output_html += "</table>\n"
+        def add_fem(m):
+            # m.groups(): prefix('el ' span start), word, span end
+            word = m.group(2)
+            # skip if already followed by '('
+            after = m.group(0)
+            # derive
+            fem = derive_feminine(word)
+            if not fem or fem.lower() == word.lower():
+                # invariant or unknown — still show feminine article if invariant
+                return f'{m.group(1)}{word}</span> (la <span class="es">{fem}</span>)'
+            return f'{m.group(1)}{word}</span> (la <span class="es">{fem}</span>)'
 
-    # Verbs Section (with example sentences)
-    if verbs_pairs:
-        output_html += f"<h2>Verbs in Sentences ({len(verbs_pairs)})</h2>\n<table>\n"
-        for eng, spa in verbs_pairs:
-            # >>> Highlight only the main verb in Spanish (exclude 'ir a' auxiliary from the red span)
-            spa_display = spa
-            # Regex to find patterns like "___ a <verb>..." at start (covers "voy/vas/va/vamos/vais/van a ")
-            match = re.match(r'^((?:[Vv]oy|[Vv]as|[Vv]a|[Vv]amos|[Vv]ais|[Vv]an) a )(.+)$', spa)
-            if match:
-                prefix = match.group(1)    # e.g. "Él va a " or "Ella va a " (including pronoun if present)
-                main_verb_phrase = match.group(2)  # the rest after "a "
-                # If the sentence starts with a pronoun like "Él" or "Ella", ensure it stays outside the span as well.
-                # We include everything up to and including "a " in prefix.
-                spa_display = f'{prefix}<span class="es">{main_verb_phrase}</span>'
-            else:
-                # If no "ir a" construction, highlight the whole Spanish phrase as before
-                spa_display = f'<span class="es">{spa}</span>'
-            output_html += f"<tr><td>{eng}</td><td>{spa_display}</td></tr>\n"
-        output_html += "</table>\n"
+        # Only add when no "(la ...)" already present in the same TD
+        # Pattern: <td> ... <span class="es">el WORD</span> ... </td>
+        def per_td(td_match):
+            td = td_match.group(0)
+            if "(" in td:  # already has parentheses of some sort
+                return td
+            td2 = re.sub(
+                r'(<span\s+class="es">\s*el\s+)([a-záéíóúüñ]+)\s*</span>',
+                add_fem,
+                td, flags=re.IGNORECASE
+            )
+            return td2
 
-    # ... (Similarly handle Adjectives, Adverbs, Common Phrases, Common Questions sections, unchanged in logic)
-    # For brevity, those sections are not fully expanded here, but they would follow the same pattern:
-    # output_html += f"<h2>Adjectives ({len(adjs_pairs)})</h2>..." and use <span class="es"> for Spanish parts as originally.
+        # apply replacement only in the ES (second) <td> of noun rows
+        # We conservatively apply to all <td> blocks in tbody; header rows use <th> so safe.
+        s = re.sub(
+            r'<td[^>]*>.*?</td>',
+            per_td,
+            s, flags=re.IGNORECASE | re.DOTALL
+        )
+        return s
 
-    # Finally, render the result in an HTML template or return directly
-    return render_template('vocab_output.html', content=output_html)
+    def repl(section_html):
+        return re.sub(
+            r'(<tbody[^>]*>)(.*?)(</tbody>)',
+            lambda m: f'{m.group(1)}{fix_one_tbody(m.group(2))}{m.group(3)}',
+            section_html, flags=re.IGNORECASE | re.DOTALL
+        )
+
+    return _replace_in_section(body_html, r'Nouns', repl)
+
+
+class handler(BaseHTTPRequestHandler):
+    def _send_cors_headers(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS, GET")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self._send_cors_headers()
+        self.end_headers()
+
+    def do_GET(self):
+        self.send_response(200)
+        self._send_cors_headers()
+        self.send_header("Content-type", "application/json; charset=utf-8")
+        self.end_headers()
+        self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
+
+    def do_POST(self):
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+            raw = self.rfile.read(content_length) if content_length else b"{}"
+
+            try:
+                data = json.loads(raw.decode("utf-8"))
+            except json.JSONDecodeError:
+                raise ValueError("Invalid JSON in request body.")
+
+            prompt = (data.get("prompt") or "").strip()
+            if not prompt:
+                raise ValueError("Missing 'prompt' in request body.")
+
+            api_key = os.environ.get("OPENAI_API_KEY")
+            if not api_key:
+                raise ValueError("Server configuration error: OPENAI_API_KEY is not set.")
+
+            client = OpenAI(
+                api_key=api_key,
+                base_url=OPENAI_BASE_URL or None,
+                organization=OPENAI_ORG_ID or None,
+            )
+
+            # Larger budget to avoid truncation under strict length rules.
+            max_tokens = min(int(os.getenv("MODEL_MAX_TOKENS", "7000")), 16384)
+
+            # Base system message = your last known-good text (unchanged)
+            base_system = (
+                "You are an expert FCS assistant. Return ONLY full raw HTML (a valid document). "
+                "Strictly follow the embedded contract inside the user's HTML prompt. "
+                "ABSOLUTE LENGTH COMPLIANCE: When ranges are provided (counts or sentences/words), "
+                "produce at least the minimum and not more than the maximum. Do not under-deliver. "
+                "If needed, compress prose while keeping counts intact. "
+                "Vocabulary generator rules (do not change UI/format): "
+                "• NOUNS: words/phrases only (no sentences) with subcategory header rows when required; "
+                "  the Spanish noun is wrapped in <span class=\"es\">…</span> (red). "
+                "• VERBS: full sentences using He/She/It/They + is/are going to + [infinitive]; "
+                "  highlight ONLY the verb (one <span class=\"en\">…</span> in the English cell, "
+                "  one <span class=\"es\">…</span> in the Spanish cell). "
+                "• ADJECTIVES: full sentences with is/are + adjective; highlight ONLY the adjective "
+                "  (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>). "
+                "• ADVERBS: full sentences that reuse verbs, highlight ONLY the adverb "
+                "  (one <span class=\"en\">…</span> and one <span class=\"es\">…</span>). "
+                "• FIB (when present): English cell colors ONLY the target English word with <span class=\"en\">…</span>; "
+                "  Spanish cell replaces the target Spanish word with its English translation in parentheses (no blank line). "
+                "Common Phrases/Questions must follow the contract. "
+                "Do NOT add explanations or code fences."
+            )
+
+            # Add the vocabulary count contract (only when the prompt is the Vocab generator)
+            system_message = build_system_message(base_system, prompt)
+
+            completion = client.chat.completions.create(
+                model=os.getenv("OPENAI_MODEL", "gpt-4o"),
+                temperature=0.8,
+                max_tokens=max_tokens,
+                messages=[
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt},
+                ],
+            )
+
+            ai_content = (completion.choices[0].message.content or "").strip()
+
+            # Unwrap code fences if present
+            m = FENCE_RE.match(ai_content)
+            if m:
+                ai_content = m.group(1).strip()
+
+            # --- Post-processing fixes (format preserved) ---
+            # 1) Ensure verbs highlight only the infinitive (never 'va a')
+            ai_content = fix_verbs_highlight(ai_content)
+            # 2) Append feminine forms in nouns where applicable
+            ai_content = add_feminine_in_nouns(ai_content)
+
+            self.send_response(200)
+            self._send_cors_headers()
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({"content": ai_content}).encode("utf-8"))
+
+        except Exception as e:
+            print(f"AN ERROR OCCURRED: {e}")
+            self.send_response(500)
+            self._send_cors_headers()
+            self.send_header("Content-type", "application/json; charset=utf-8")
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "error": "An internal server error occurred.",
+                "details": str(e)
+            }).encode("utf-8"))
