@@ -16,6 +16,7 @@ FENCE_RE = re.compile(r"^\s*```(?:html|xml|markdown)?\s*([\s\S]*?)\s*```\s*$", r
 
 # Detect which tool is invoking us (based on the HTML prompt banner)
 IS_VOCAB_RE = re.compile(r"FCS\s+VOCABULARY\s+OUTPUT", re.IGNORECASE)
+IS_CONVO_RE = re.compile(r"FCS\s+CONVERSATION\s+OUTPUT", re.IGNORECASE)
 
 # Parse "Vocabulary range: X–Y ..." from the embedded Markdown in the prompt.
 RANGE_RE = re.compile(
@@ -65,10 +66,20 @@ def quotas_30_30_15_15(total: int):
         i = (i + 1) % 4
     return n, v, a, d
 
+def phrases_questions_row_targets(total_vocab_midpoint: int):
+    """
+    Compute required minimum rows for Common Phrases and Common Questions.
+    Floor is 10 each. Scale up with total vocab, but remain modest.
+    Examples: 60 -> 10, 100 -> 13, 160 -> 20, 190 -> 24, 240 -> 30.
+    """
+    rows = max(10, min(30, round(total_vocab_midpoint / 8)))  # simple, smooth scaling
+    return rows, rows  # (phrases_min, questions_min)
+
 def build_system_message(base_system: str, user_prompt: str) -> str:
     """
     If this is a Vocabulary prompt and we can read the range, append a STRICT contract
-    that forces one-shot midpoint counts while preserving the front-end skeleton.
+    that forces one-shot midpoint counts while preserving the front-end skeleton,
+    and require non-empty, scaled Common Phrases/Questions.
     """
     if not IS_VOCAB_RE.search(user_prompt or ""):
         return base_system  # conversation/test: unchanged
@@ -79,8 +90,11 @@ def build_system_message(base_system: str, user_prompt: str) -> str:
 
     target_total = midpoint(lo, hi)
     n, v, a, d = quotas_30_30_15_15(target_total)
+    phrases_min, questions_min = phrases_questions_row_targets(target_total)
+    max_reuse = max(1, (target_total * 20 + 99) // 100)  # ceil(20% of total)
 
-    # Contract focuses on QUANTITY ONLY; NO UI/format changes.
+    # Contract focuses on QUANTITY ONLY for sections 1–4 and adds mandatory
+    # population of Common Phrases/Questions without affecting the count.
     contract = f"""
 
 STRICT ONE-SHOT COUNTING CONTRACT (Vocabulary ONLY; do NOT change UI/format):
@@ -94,11 +108,16 @@ STRICT ONE-SHOT COUNTING CONTRACT (Vocabulary ONLY; do NOT change UI/format):
 • OUTPUT BOUNDARIES — CRITICAL:
   – Use the HTML skeleton provided in the user's prompt AS-IS.
   – Insert ONLY <tr> row content into the existing <tbody> of each section.
-  – Do NOT print any raw tag names or text outside the document (no stray “<td> …” text).
+  – Do NOT print any raw tag names or stray text outside the document.
   – Do NOT add/remove sections, headers, tables, or attributes. No commentary or notes.
+• COMMON PHRASES & COMMON QUESTIONS — MANDATORY:
+  – Populate BOTH sections with table rows inside their existing <tbody>.
+  – Minimum rows: Common Phrases ≥ {phrases_min}; Common Questions ≥ {questions_min}.
+  – Reuse only vocabulary from sections 1–4 (no new vocabulary). Total distinct reused words
+    across BOTH sections combined must be ≤ {max_reuse} (≈20% of {target_total}).
+  – Rows in these sections do NOT count toward the {target_total} total.
 • HIGHLIGHTING / WHAT COUNTS:
   – Count ONLY the red Spanish target words wrapped in <span class="es">…</span> in sections 1–4.
-  – Common Phrases/Questions may reuse vocabulary, but they do NOT count toward the total.
   – Avoid duplicates within a section; prefer unique targets. Across sections, use distinct targets.
 • LINGUISTIC RULES (unchanged UI/format):
   – Nouns: word/phrase entries only (no sentences). Include articles; if both genders exist, show feminine in parentheses (prefer masculine).
@@ -107,9 +126,9 @@ STRICT ONE-SHOT COUNTING CONTRACT (Vocabulary ONLY; do NOT change UI/format):
   – Adverbs: reuse verbs in sentences; highlight ONLY the adverb once in EN/ES cells.
 • SELF-CHECK BEFORE SENDING:
   – Ensure the exact per-section quotas and the exact grand total are satisfied in sections 1–4.
+  – Ensure BOTH Common sections meet their row minimums and only reuse allowed vocabulary.
   – Ensure valid, well-formed HTML that fits the provided skeleton.
 """
-
     return base_system + contract
 
 
