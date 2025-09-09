@@ -661,9 +661,305 @@ ${rawPrompt}
       await generateAndRender(buildVocabPrompt(), $('v-gen'), $('v-status'), $('v-output'), vocabValidator, 0);
     });
     $('v-prompt').addEventListener('click', () => {
-      if (!topicEl.value.trim()) { statusEl.textContent = "Please enter a topic."; return; }
-      copyText(buildVocabInstruction(), $('v-status'));
-    });
+  if (!topicEl.value.trim()) { 
+    statusEl.textContent = "Please enter a topic."; 
+    return; 
+  }
+
+  let minCount, maxCount;
+  if (planEl.value === 'custom') {
+    minCount = Math.max(1, Math.min(300, Number(tminEl.value) || 1));
+    maxCount = Math.max(minCount, Math.min(300, Number(tmaxEl.value) || minCount));
+  } else {
+    const r = presetRanges[planEl.value];
+    minCount = r.min; 
+    maxCount = r.max;
+  }
+
+  const topic = (topicEl.value || '').trim();
+
+  const promptText = `You are an expert assistant for the FCS program.
+ You must always follow every instruction below exactly.
+ Never ask me follow-up questions, never stop early, and never skip or merge sections.
+
+Topic: “${topic}”
+ Vocabulary range: ${minCount}–${maxCount} distinct Spanish vocabulary words (target the upper bound).
+
+0. Topic Title
+At the very top, present the topic title in a two-column Markdown table row.
+
+
+Format exactly like this (only once, at the very top):
+
+
+Title | Título
+ Topic in English | Topic in Spanish
+
+1. Nouns
+Present nouns in a two-column Markdown table.
+
+
+The header row must have column-specific descriptions, for example:
+ | Nouns | Sustantivos |
+
+
+Use bold article + noun in both languages.
+
+
+If more than 20 nouns, subdivide into logical categories such as People, Places, Equipment.
+
+
+Only write “1. Nouns” once at the start of this section, not before every subcategory.
+
+
+Subcategories must have a short label such as People, Places.
+
+
+Alphabetize English terms within each category.
+
+
+All nouns must be relevant to the topic.
+
+
+After each subcategory’s table, insert one completely blank row with just spaces,
+ then the new section title, then one blank line before the new table begins.
+
+
+
+2. Verbs in Sentences
+Present in a two-column Markdown table.
+
+
+The header row must have column-specific descriptions, for example:
+ | Verbs in Sentences | Verbos en oraciones |
+
+
+Always use third-person sentences in English with “is/are going to + verb.”
+
+
+Reflexive verbs must place the pronoun after the infinitive (example: va a descansarse).
+
+
+Bold “to + verb” in English and the infinitive in Spanish.
+
+
+Include sentences where:
+
+
+nouns from Part 1 are objects
+
+
+nouns from Part 1 are subjects
+
+
+no nouns, just a third-person subject (he, she, it, they)
+
+
+Verbs must be relevant to the topic.
+
+
+End the table with one completely blank row with just spaces, then the new section title, then another blank line.
+
+
+
+3. Adjectives
+Present in a two-column Markdown table.
+
+
+The header row must have column-specific descriptions, for example:
+ | Adjectives | Adjetivos |
+
+
+Sentences must pair nouns from Part 1 with “is/are + adjective.”
+
+
+Only the adjective should be bold.
+
+
+Each major noun must appear with at least two adjectives (contrasting or related).
+
+
+End with the same spacing rule.
+
+
+
+4. Adverbs
+Present in a two-column Markdown table.
+
+
+The header row must have column-specific descriptions, for example:
+ | Adverbs | Adverbios |
+
+
+Sentences must reuse verbs from Part 2, each modified with an adverb.
+
+
+Only the adverb should be bold.
+
+
+Adverbs must fit the context of the topic.
+
+
+End with the same spacing rule.
+
+
+
+5. Common Phrases
+Present in a two-column Markdown table.
+
+
+The header row must have column-specific descriptions, for example:
+ | Common Phrases | Frases comunes |
+
+
+Phrases must be relevant to the topic.
+
+
+Write no more than 7 phrases.
+
+
+End with the same spacing rule.
+
+
+
+6. Common Questions
+Present in a two-column Markdown table.
+
+
+The header row must have column-specific descriptions, for example:
+ | Common Questions | Preguntas comunes |
+
+
+Do not include answers.
+
+
+Write no more than 7 questions.
+
+
+Questions must be relevant to the topic.
+
+
+End with the same spacing rule.
+
+
+
+7. Conversations
+Create two sample conversations in a two-column table.
+
+
+Each conversation is between two people.
+
+
+Each conversation (1 & 2) must include 8 turns total (4 per person).
+
+
+Each turn in each conversation (1 & 2) must contain 2–3 sentences/questions. (at least half of the turns include a question, and at least half of the turns include 3 sentences/questions
+
+
+Each sentence in each turn in each conversation (1 & 2) must be 1–15 words long.
+
+
+Conversations must include a natural mix of statements and questions.
+
+
+Vary:
+
+
+the number of sentences/questions per turn (sometimes 2, sometimes 3).
+
+
+the length of sentences within a turn (some short, some longer).
+
+
+Must use nouns, verbs, adjectives, and/or phrases from earlier sections.
+
+
+Conversation 1 grammar rules: Do not use past tenses, subjunctive, or imperative.
+
+
+Conversation 2 grammar rules: May use any grammar, verb tenses and moods.
+
+
+Special formatting and spacing rules for Conversations:
+After the line “7. Conversations”, insert one completely blank row.
+
+
+Then start Conversation 1 with a header row inside the table, with column-specific titles:
+
+
+Left column: (English) Who is speaking/about what.
+
+
+Right column: (Español) Who is speaking/about what.
+
+
+After Conversation 1’s table, insert two completely blank rows
+
+
+Then Conversation 2 begins with its own header row inside the table, following the same column-specific titles.
+
+
+After Conversation 2’s table, insert one completely blank row before the Monologue section.
+
+8. Monologue
+ Write a lecture-style monologue with 10–15 sentences.
+
+
+Present in a two-column Markdown table.
+
+
+It must be one paragraph, not separate lines.
+
+
+It should feel like an explanation, guidance, or commentary about the topic.
+
+
+Must use vocabulary from earlier sections.
+
+
+Special formatting rule for Monologue:
+ The header row of the table should contain column-specific titles:
+
+
+Left column: “Monologue: [English description of topic]”
+
+
+Right column: “Monólogo: [Spanish description of topic]”
+
+
+⚠ Both columns must contain a complete monologue: the left side in English and the right side in Spanish.
+
+
+Final Rules
+Use Markdown tables for all parts (0–8).
+
+
+Every section must include a header row with column-specific descriptions, not just raw content.
+
+
+After every table or subsection, always insert:
+
+
+one completely blank row (just spaces),
+
+
+then the new section title,
+
+
+then one blank line before the next table.
+
+
+Always produce the full 8 parts (title → monologue).
+
+
+Never stop early. Never ask me if you should continue.
+
+
+Always keep vocabulary count between 200–250 distinct Spanish words.`;
+
+  copyText(promptText, statusEl);
+});
+
     $('v-copy-mode').addEventListener('change', () => {
       const mode = $('v-copy-mode').value;
       if (!mode) return;
