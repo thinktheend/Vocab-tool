@@ -1429,9 +1429,7 @@ Formatting: Markdown tables; English | Español; no HTML; alphabetize English wi
 })();
 </script>
 
-
-  <script>
-/* =========================
+  /* =========================
    Test Generator (REPLACED BLOCK)
    ========================= */
 (function setupTest() {
@@ -1544,6 +1542,10 @@ Formatting: Markdown tables; English | Español; no HTML; alphabetize English wi
   $('t-excel').addEventListener('click', () => downloadAsExcel($('t-output'), $('t-status'), 'Test'));
 })();
 </script>
-
+    $('t-copy').addEventListener('click', () => copyToClipboard(outputEl, statusEl));
+    $('t-excel').addEventListener('click', () => downloadAsExcel($('t-output'), $('t-status'), 'Test'));
+  })();
+})();
+</script>
 </body>
 </html>
