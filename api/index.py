@@ -729,7 +729,7 @@ class handler(BaseHTTPRequestHandler):
                 organization=OPENAI_ORG_ID or None,
             )
 
-            max_tokens = min(int(os.getenv("MODEL_MAX_TOKENS", "7000")), 16384)
+            max_tokens = min(int(os.getenv("MODEL_MAX_TOKENS", "10000")), 16384)
 
             # Base system message = your last known-good text
             base_system = (
