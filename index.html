@@ -968,250 +968,273 @@ Formatting: Markdown tables; English | Español; no HTML; alphabetize English wi
     $('v-excel').addEventListener('click', () => downloadAsExcel($('v-output'), $('v-status'), $('v-topic').value || 'Vocabulary'));
   })();
 
-  /* =========================
-     Conversation Generator
-     ========================= */
-  (function setupConvo() {
-    const convoUI = 
-      `<div class="fcs-card"><h2>Conversation Creator</h2>
-        <div class="grid-2">
-          <div class="grid-full"><label for="c-topic">Topic</label><input id="c-topic" type="text" placeholder="e.g., A funny story about a vacation"/></div>
-          <div><label>Level (Grammar)</label>
-            <select id="c-level">
-              <option value="1" selected>Level 1 — Survival</option>
-              <option value="2">Level 2 — Beginner</option>
-              <option value="3">Level 3 — Intermediate</option>
-              <option value="4">Level 4 — Conversational</option>
-              <option value="5">Level 5 — Fluent</option>
-              <option value="6">Level 6 — Native</option>
-            </select>
-          </div>
-          <div><label># of Conversations</label><input id="c-numConvos" type="number" value="1" min="1"/></div>
-          <div><label># of Speakers</label><input id="c-numSpeakers" type="number" value="2" min="1"/></div>
-          <div class="grid-full" style="display:grid; grid-template-columns: repeat(2, 1fr); gap:12px;">
-            <div><label>Turns</label><input id="c-turns" type="number" value="10" min="1"/></div>
-            <div>
-              <label for="c-length">Output length</label>
-              <select id="c-length">
-                <option value="shortest">Shortest (1–2 ES sentences / 1–10 words)</option>
-                <option value="short">Short (1–2 ES sentences / 6–20 words)</option>
-                <option value="mediumShort" selected>Medium short (2–3 ES sentences / 6–20 words)</option>
-                <option value="mediumLong">Medium long (3–4 ES sentences / 6–20 words)</option>
-                <option value="long">Long (4–5 ES sentences / 6–20 words)</option>
-                <option value="longest">Longest (15–30 ES sentences / 6–20 words)</option>
-              </select>
-            </div>
-          </div>
-          <div><label>Tone</label>
-            <select id="c-tone">
-              <option>Neutral, casual</option>
-              <option>Informal, friendly</option>
-              <option>Instructor, student</option>
-              <option>Customer, staff</option>
-              <option>Professional, formal</option>
-              <option>Street slang</option>
-            </select>
-          </div>
-          <div><label>Country / Region</label><select id="c-country"></select></div>
-          <div class="grid-full">
-            <label>Fill-in-the-Blank Options</label>
-            <div id="c-fib-group" style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
-              <label><input type="checkbox" id="c-fib-none" checked> none</label>
-              <label><input type="checkbox" id="c-fib-mixed"> mixed</label>
-              <label><input type="checkbox" class="fib-opt" value="nouns"> nouns</label>
-              <label><input type="checkbox" class="fib-opt" value="verbs"> verbs</label>
-              <label><input type="checkbox" class="fib-opt" value="adjectives/adverbs"> adjectives/adverbs</label>
-              <label><input type="checkbox" class="fib-opt" value="pronouns"> pronouns (object pronouns)</label>
-              <label><input type="checkbox" class="fib-opt" value="glue words"> glue words</label>
-            </div>
-            <div class="hint">
-              “mixed” checks all options; “none” clears them. Glue words: possessive pronouns, demonstratives, conjunctions, adverbs, quantifiers, prepositions, comparisons.
-            </div>
-          </div>
-          <div class="grid-full"><label for="c-vocab">Vocabulary (optional)</label><textarea id="c-vocab" rows="6" placeholder="Put your own vocabulary here..."></textarea></div>
-          <div class="grid-full"><label>Optional Teacher Notes</label><textarea id="c-notes" rows="4"></textarea></div>
-        </div>
-        <div class="actions">
-          <button id="c-gen" class="primary">Generate</button>
-          <button id="c-excel">Excel</button>
-          <select id="c-copy-mode">
-            <option value="" disabled selected>Copy…</option>
-            <option value="all">Copy All</option>
-            <option value="es-only">Copy Spanish Only</option>
+  <script>
+/* =========================
+   Conversation Generator (REPLACED BLOCK)
+   ========================= */
+(function setupConvo() {
+  const convoUI = 
+    `<div class="fcs-card"><h2>Conversation Creator</h2>
+      <div class="grid-2">
+        <div class="grid-full"><label for="c-topic">Topic</label><input id="c-topic" type="text" placeholder="e.g., A funny story about a vacation"/></div>
+        <div><label>Level (Grammar)</label>
+          <select id="c-level">
+            <option value="1" selected>Level 1 — Survival</option>
+            <option value="2">Level 2 — Beginner</option>
+            <option value="3">Level 3 — Intermediate</option>
+            <option value="4">Level 4 — Conversational</option>
+            <option value="5">Level 5 — Fluent</option>
+            <option value="6">Level 6 — Native</option>
           </select>
-          <button id="c-prompt">Prompt</button>
-          <div id="c-status" class="status"></div>
         </div>
+        <div><label># of Conversations</label><input id="c-numConvos" type="number" value="1" min="1"/></div>
+        <div><label># of Speakers</label><input id="c-numSpeakers" type="number" value="2" min="1"/></div>
+        <div class="grid-full" style="display:grid; grid-template-columns: repeat(2, 1fr); gap:12px;">
+          <div><label>Turns</label><input id="c-turns" type="number" value="10" min="1"/></div>
+          <div>
+            <label for="c-length">Output length</label>
+            <select id="c-length">
+              <option value="shortest">Shortest (1–2 ES sentences / 1–10 words)</option>
+              <option value="short">Short (1–2 ES sentences / 6–20 words)</option>
+              <option value="mediumShort" selected>Medium short (2–3 ES sentences / 6–20 words)</option>
+              <option value="mediumLong">Medium long (3–4 ES sentences / 6–20 words)</option>
+              <option value="long">Long (4–5 ES sentences / 6–20 words)</option>
+              <option value="longest">Longest (15–30 ES sentences / 6–20 words)</option>
+            </select>
+          </div>
+        </div>
+        <div><label>Tone</label>
+          <select id="c-tone">
+            <option>Neutral, casual</option>
+            <option>Informal, friendly</option>
+            <option>Instructor, student</option>
+            <option>Customer, staff</option>
+            <option>Professional, formal</option>
+            <option>Street slang</option>
+          </select>
+        </div>
+        <div><label>Country / Region</label><select id="c-country"></select></div>
+        <div class="grid-full">
+          <label>Fill-in-the-Blank Options</label>
+          <div id="c-fib-group" style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
+            <label><input type="checkbox" id="c-fib-none" checked> none</label>
+            <label><input type="checkbox" id="c-fib-mixed"> mixed</label>
+            <label><input type="checkbox" class="fib-opt" value="nouns"> nouns</label>
+            <label><input type="checkbox" class="fib-opt" value="verbs"> verbs</label>
+            <label><input type="checkbox" class="fib-opt" value="adjectives/adverbs"> adjectives/adverbs</label>
+            <label><input type="checkbox" class="fib-opt" value="pronouns"> pronouns (object pronouns)</label>
+            <label><input type="checkbox" class="fib-opt" value="glue words"> glue words</label>
+          </div>
+          <div class="hint">
+            “mixed” checks all options; “none” clears them. Glue words: possessive pronouns, demonstratives, conjunctions, adverbs, quantifiers, prepositions, comparisons.
+          </div>
+        </div>
+        <div class="grid-full"><label for="c-vocab">Vocabulary (optional)</label><textarea id="c-vocab" rows="6" placeholder="Put your own vocabulary here..."></textarea></div>
+        <div class="grid-full"><label>Optional Teacher Notes</label><textarea id="c-notes" rows="4"></textarea></div>
       </div>
-      <div id="c-output" class="output-container"><p>Your conversation appears here...</p></div>`;
-    $('gen-convo').innerHTML = convoUI;
+      <div class="actions">
+        <button id="c-gen" class="primary">Generate</button>
+        <button id="c-excel">Excel</button>
+        <select id="c-copy-mode">
+          <option value="" disabled selected>Copy…</option>
+          <option value="all">Copy All</option>
+          <option value="es-only">Copy Spanish Only</option>
+        </select>
+        <button id="c-prompt">Prompt</button>
+        <div id="c-status" class="status"></div>
+      </div>
+    </div>
+    <div id="c-output" class="output-container"><p>Your conversation appears here...</p></div>`;
+  $('gen-convo').innerHTML = convoUI;
 
-    const countrySelect = $('c-country');
-    const countries = ["-no specific-", "Argentina", "Bolivia", "Chile", "Colombia", "Costa Rica", "Cuba", "Dominican Republic", "Ecuador", "El Salvador", "Equatorial Guinea", "Guatemala", "Honduras", "Mexico", "Nicaragua", "Panama", "Paraguay", "Peru", "Puerto Rico", "Spain", "Uruguay", "Venezuela"];
-    countrySelect.innerHTML = countries.map(c => `<option>${c}</option>`).join('');
+  const countrySelect = $('c-country');
+  const countries = ["-no specific-", "Argentina", "Bolivia", "Chile", "Colombia", "Costa Rica", "Cuba", "Dominican Republic", "Ecuador", "El Salvador", "Equatorial Guinea", "Guatemala", "Honduras", "Mexico", "Nicaragua", "Panama", "Paraguay", "Peru", "Puerto Rico", "Spain", "Uruguay", "Venezuela"];
+  countrySelect.innerHTML = countries.map(c => `<option>${c}</option>`).join('');
 
-    const genBtn = $('c-gen'),
-          excelBtn = $('c-excel'),
-          copySelect = $('c-copy-mode'),
-          promptBtn = $('c-prompt'),
-          statusEl = $('c-status'),
-          outputEl = $('c-output');
+  const genBtn = $('c-gen'),
+        excelBtn = $('c-excel'),
+        copySelect = $('c-copy-mode'),
+        promptBtn = $('c-prompt'),
+        statusEl = $('c-status'),
+        outputEl = $('c-output');
 
-    // Presets for output length
-    const LENGTH_PRESETS = {
-      shortest:    { minSent:1, maxSent:2,  minWords:1,  maxWords:10 },
-      short:       { minSent:1, maxSent:2,  minWords:6,  maxWords:20 },
-      mediumShort: { minSent:2, maxSent:3,  minWords:6,  maxWords:20 },
-      mediumLong:  { minSent:3, maxSent:4,  minWords:6,  maxWords:20 },
-      long:        { minSent:4, maxSent:5,  minWords:6,  maxWords:20 },
-      longest:     { minSent:15, maxSent:30, minWords:6,  maxWords:20 }
+  const LENGTH_PRESETS = {
+    shortest:    { minSent:1, maxSent:2,  minWords:1,  maxWords:10 },
+    short:       { minSent:1, maxSent:2,  minWords:6,  maxWords:20 },
+    mediumShort: { minSent:2, maxSent:3,  minWords:6,  maxWords:20 },
+    mediumLong:  { minSent:3, maxSent:4,  minWords:6,  maxWords:20 },
+    long:        { minSent:4, maxSent:5,  minWords:6,  maxWords:20 },
+    longest:     { minSent:15, maxSent:30, minWords:6,  maxWords:20 }
+  };
+  const getLengthPreset = () => LENGTH_PRESETS[$('c-length').value || 'mediumShort'] || LENGTH_PRESETS.mediumShort;
+
+  // FIB toggles
+  const noneBox = $('c-fib-none');
+  const mixedBox = $('c-fib-mixed');
+  const fibBoxes = Array.from(document.querySelectorAll('#c-fib-group .fib-opt'));
+  function syncFibFromNone() {
+    if (noneBox.checked) {
+      mixedBox.checked = false;
+      fibBoxes.forEach(b => b.checked = false);
+    }
+  }
+  function syncFibFromMixed() {
+    if (mixedBox.checked) {
+      noneBox.checked = false;
+      fibBoxes.forEach(b => b.checked = true);
+    }
+  }
+  function syncFibFromOption() {
+    if (fibBoxes.some(b => b.checked)) {
+      noneBox.checked = false;
+      mixedBox.checked = fibBoxes.every(b => b.checked);
+    } else {
+      noneBox.checked = true;
+      mixedBox.checked = false;
+    }
+  }
+  noneBox.addEventListener('change', syncFibFromNone);
+  mixedBox.addEventListener('change', syncFibFromMixed);
+  fibBoxes.forEach(b => b.addEventListener('change', syncFibFromOption));
+
+  function getSelectedFIB() {
+    const tags = fibBoxes.filter(b => b.checked).map(b => b.value);
+    const active = tags.length > 0;
+    const label = active ? tags.join(', ') : 'none';
+    return { active, tags, label };
+  }
+
+  function getUI() {
+    const L = getLengthPreset();
+    const turns = Math.max(1, Number($('c-turns').value) || 10);
+    const fib = getSelectedFIB();
+    return {
+      topic: $('c-topic').value.trim(),
+      level: $('c-level').value,
+      sentences_per_turn: { min: L.minSent, max: L.maxSent, minWords: L.minWords, maxWords: L.maxWords },
+      vocab: $('c-vocab').value || "(auto-generate level-appropriate list if empty)",
+      numConvos: Math.max(1, Number($('c-numConvos').value) || 1),
+      numSpeakers: Math.max(1, Number($('c-numSpeakers').value) || 1),
+      turns,
+      tone: $('c-tone').value,
+      region: $('c-country').value,
+      fibOptions: fib.active ? fib.tags : [],
+      fibActive: fib.active,
+      fibLabel: fib.label,
+      fibMax: Math.min(100, turns * 2),
+      teacherNotes: $('c-notes').value || ""
     };
-    const getLengthPreset = () => LENGTH_PRESETS[$('c-length').value || 'mediumShort'] || LENGTH_PRESETS.mediumShort;
+  }
 
-    const noneBox = $('c-fib-none');
-    const mixedBox = $('c-fib-mixed');
-    const fibBoxes = Array.from(document.querySelectorAll('#c-fib-group .fib-opt'));
-    function syncFibFromNone() {
-      if (noneBox.checked) {
-        mixedBox.checked = false;
-        fibBoxes.forEach(b => b.checked = false);
-      }
-    }
-    function syncFibFromMixed() {
-      if (mixedBox.checked) {
-        noneBox.checked = false;
-        fibBoxes.forEach(b => b.checked = true);
-      }
-    }
-    function syncFibFromOption() {
-      if (fibBoxes.some(b => b.checked)) {
-        noneBox.checked = false;
-        mixedBox.checked = fibBoxes.every(b => b.checked);
-      } else {
-        noneBox.checked = true;
-        mixedBox.checked = false;
-      }
-    }
-    noneBox.addEventListener('change', syncFibFromNone);
-    mixedBox.addEventListener('change', syncFibFromMixed);
-    fibBoxes.forEach(b => b.addEventListener('change', syncFibFromOption));
+  function getLevelRulesLines(level) {
+    return window.getLevelRulesLines ? window.getLevelRulesLines(level) : [];
+  }
 
-    function getSelectedFIB() {
-      const tags = fibBoxes.filter(b => b.checked).map(b => b.value);
-      const active = tags.length > 0;
-      const label = active ? tags.join(', ') : 'none';
-      return { active, tags, label };
-    }
+  // Clean, number-injected instruction (for "Prompt" copy button)
+  function buildConvoInstruction() {
+    const ui = getUI();
+    const L = ui.sentences_per_turn;
+    const fibCount = Math.max(20, Math.min(ui.fibMax, ui.turns * 2));
+    const levelLines = getLevelRulesLines(ui.level);
 
-    function buildConvoInstruction() {
-      const topic = $('c-topic').value.trim();
-      const turns = Math.max(1, Number($('c-turns').value) || 10);
-      const fib = getSelectedFIB();
-      const fibCount = Math.max(20, Math.min(100, turns * 2));
-      const L = getLengthPreset();
-      const ui = {
-        topic,
-        level: $('c-level').value,
-        sentences_per_turn: { min: L.minSent, max: L.maxSent, minWords: L.minWords, maxWords: L.maxWords },
-        vocab: $('c-vocab').value || "(auto-generate level-appropriate list if empty)",
-        numConvos: Math.max(1, Number($('c-numConvos').value) || 1),
-        numSpeakers: Math.max(1, Number($('c-numSpeakers').value) || 1),
-        turns,
-        tone: $('c-tone').value,
-        region: $('c-country').value,
-        fibOptions: fib.active ? fib.tags : [],
-        teacherNotes: $('c-notes').value || ""
-      };
-      const levelLines = getLevelRulesLines(ui.level);
-      const baseRules = [
-        `Create EXACTLY ${ui.numConvos} conversation section(s) titled "Conversation 1", "Conversation 2", ...`,
-        `Use exactly ${ui.numSpeakers} distinct speaker name(s) appropriate to the region.`,
-        `Each conversation has EXACTLY ${ui.turns} turns (rows).`,
-        `Tables have two columns: "English" | "Español".`,
-        `ABSOLUTE LENGTH COMPLIANCE: In EVERY turn, produce between ${ui.sentences_per_turn.min} and ${ui.sentences_per_turn.max} sentences in BOTH columns.`,
-        `Each sentence must have between ${ui.sentences_per_turn.minWords} and ${ui.sentences_per_turn.maxWords} words.`,
-        `Prefix only the first sentence of each turn in both columns with the speaker name in brackets (do not repeat the name for multiple sentences in the same turn).`
-      ];
-      const fibRules = (!fib.active)
-        ? [
-            `No Fill-in-the-Blank section.`,
-            `INSTEAD, include TWO sections after the conversations:`,
-            `• "Common Phrases" — full phrases, English | Español.`,
-            `• "Full Vocabulary Index" — words/phrases ONLY (no sentences), English | Español, alphabetized by English.`
-          ]
-        : [
-            `Include a Fill-in-the-Blank section with about ${fibCount} items.`,
-            `FIB focus: ${fib.label}.`,
-            `FIB formatting (STRICT):`,
-            `• English column: full sentence; color ONLY the target English word with <span class="en">…</span>;`,
-            `• Spanish column: full sentence with the target Spanish word removed, replaced by its English translation in parentheses (no blank line).`,
-            `MANDATORY: Numbered Answer Key after FIB — full Spanish sentences with the missing word filled in (highlight the word with <span class="es">…</span>).`,
-            `(No separate "Vocabulary Used" section.)`
-          ];
-      const footer = [
-        `GLOBAL: Stay on topic "${ui.topic}". Self-check all numeric constraints before responding.`
-      ];
-      return [
-        `You are an expert assistant for FCS.`,
-        `IMPORTANT: Do NOT return HTML. Produce TWO PARTS (Word + CSV).`,
-        `Topic: "${ui.topic}". Level: ${ui.level}. Tone: "${ui.tone}". Region: "${ui.region}".`,
-        ui.vocab && ui.vocab !== "(auto-generate level-appropriate list if empty)"
-          ? `Teacher vocabulary (preferred when natural): ${ui.vocab.replace(/[\r\n]+/g, '; ')}`
-          : `Vocabulary: auto-generate.`,
-        `LEVEL RULES:\n- ${levelLines.join('\n- ')}`,
-        '',
-        'Rules (strict):', ...baseRules, ...fibRules, '', ...footer
-      ].join('\n');
-    }
+    const baseRules = [
+      `Create EXACTLY ${ui.numConvos} conversation section(s) titled "Conversation 1", "Conversation 2", ...`,
+      `Use exactly ${ui.numSpeakers} distinct speaker name(s) appropriate to the region.`,
+      `Each conversation has EXACTLY ${ui.turns} turns (rows).`,
+      `Tables have two columns: "English" | "Español".`,
+      `ABSOLUTE LENGTH COMPLIANCE: In EVERY turn, produce between ${L.min} and ${L.max} sentences in BOTH columns.`,
+      `Each sentence must have between ${L.minWords} and ${L.maxWords} words.`,
+      `Prefix ONLY the first sentence of each turn in both columns with the speaker name in brackets (e.g., [María] ...).`
+    ];
 
-    function buildConvoPrompt() {
-      const topic = $('c-topic').value.trim();
-      const L = getLengthPreset();
-      const fib = getSelectedFIB();
-      const turns = Math.max(1, Number($('c-turns').value) || 10);
-      const fibCount = Math.max(20, Math.min(100, turns * 2));
-      const ui = {
-        topic,
-        level: $('c-level').value,
-        sentences_per_turn: { min: L.minSent, max: L.maxSent, minWords: L.minWords, maxWords: L.maxWords },
-        vocab: $('c-vocab').value || "(auto-generate level-appropriate list if empty)",
-        numConvos: Math.max(1, Number($('c-numConvos').value) || 1),
-        numSpeakers: Math.max(1, Number($('c-numSpeakers').value) || 1),
-        turns,
-        tone: $('c-tone').value,
-        region: $('c-country').value,
-        fibOptions: fib.active ? fib.tags : [],
-        teacherNotes: $('c-notes').value || ""
-      };
-      const levelLines = getLevelRulesLines(ui.level);
-      const isMono = (ui.numConvos === 1 && ui.numSpeakers === 1);
-      const rules = [
-        `Create EXACTLY UI.numConvos conversation sections: "Conversation 1"...`,
-        `Each conversation has EXACTLY UI.turns turns (rows).`,
-        `Use EXACTLY UI.numSpeakers speaker name(s); if UI.numSpeakers === 1, use the same name for all turns (monologue).`,
-        `ABSOLUTE LENGTH COMPLIANCE: Each turn has between UI.sentences_per_turn.min and UI.sentences_per_turn.max sentences in BOTH columns.`,
-        `Each sentence has between UI.sentences_per_turn.minWords and UI.sentences_per_turn.maxWords words. Prefer the UPPER bound${isMono ? ' for a very long monologue' : ''}.`,
-        `Prefix EVERY sentence in BOTH columns with the speaker name in brackets, e.g., [María] ...`,
-        'Headers must be exactly "English" and "Español".',
-        `Tone: "${ui.tone}". Region: "${ui.region}". Level: ${ui.level}.`,
-        `LEVEL RULES:\n- ${levelLines.join('\n- ')}`,
-        (fib.active ? `Include about ${fibCount} Fill-in-the-Blank items focused on: ${fib.tags.join(', ')}.` : 'Include Common Phrases + Full Vocabulary Index (words only) after conversations.'),
-        (fib.active ? `FIB: In English, each sentence has one <span class="en">target</span> word; in Spanish, the sentence omits that word and shows its English meaning in parentheses.` : ''),
-        (fib.active ? `Also include a numbered Answer Key section with the full Spanish sentences (missing words filled in and highlighted in <span class="es">red</span>). No separate vocabulary list.` : ''),
-        'No empty <tbody>. SELF-CHECK all constraints before returning.'
-      ].filter(Boolean);
-      const safeTopic = safeForScriptTemplate(ui.topic);
-      const uiJson = safeForScriptTemplate(JSON.stringify(ui));
-      const conversationsHTML = Array.from({ length: ui.numConvos }).map((_, i) => `
-  <div class="section">
-    <h2>Conversation ${i + 1}</h2>
-    <table class="tbl">
-      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
-      <tbody></tbody>
-    </table>
-  </div>`).join('');
-      const fibLabel = fib.active ? fib.tags.join(', ') : '';
-      return `<!DOCTYPE html>
+    const fibRules = (!ui.fibActive)
+      ? [
+          `No Fill-in-the-Blank section.`,
+          `INSTEAD, include TWO sections after the conversations:`,
+          `• "Common Phrases" — full phrases, English | Español.`,
+          `• "Full Vocabulary Index" — words/phrases ONLY (no sentences), English | Español, alphabetized by English.`
+        ]
+      : [
+          `Include a Fill-in-the-Blank section with **about ${fibCount} items (≤ ${ui.fibMax})**.`,
+          `FIB focus: ${ui.fibLabel}.`,
+          `FIB formatting (STRICT):`,
+          `• English column: full sentence; color ONLY the target English word with <span class="en">…</span>.`,
+          `• Spanish column: full sentence with the target Spanish word removed, replaced by its English translation in parentheses (no blank line, no dashes, no underscores).`,
+          `MANDATORY: Numbered Answer Key after FIB — full Spanish sentences with the missing word filled in (highlight the word with <span class="es">…</span>).`,
+          `(No separate "Vocabulary Used" section.)`
+        ];
+
+    return [
+      `You are an expert assistant for FCS.`,
+      `IMPORTANT: Do NOT return HTML. Produce content that can be placed into the provided HTML skeleton.`,
+      `Topic: "${ui.topic}". Level: ${ui.level}. Tone: "${ui.tone}". Region: "${ui.region}".`,
+      ui.vocab && ui.vocab !== "(auto-generate level-appropriate list if empty)"
+        ? `Teacher vocabulary (preferred when natural): ${ui.vocab.replace(/[\r\n]+/g, '; ')}`
+        : `Vocabulary: auto-generate.`,
+      `LEVEL RULES:\n- ${levelLines.join('\n- ')}`,
+      '',
+      'Rules (strict):', ...baseRules, ...fibRules,
+      '',
+      `GLOBAL: Stay on topic "${ui.topic}". Self-check all numeric constraints before responding.`
+    ].join('\n');
+  }
+
+  function buildConvoPrompt() {
+    const ui = getUI();
+    const L = ui.sentences_per_turn;
+    const levelLines = getLevelRulesLines(ui.level);
+    const safeTopic = safeForScriptTemplate(ui.topic);
+    const uiJson = safeForScriptTemplate(JSON.stringify(ui, null, 2));
+
+    const conversationsHTML = Array.from({ length: ui.numConvos }).map((_, i) => `
+<div class="section">
+  <h2>Conversation ${i + 1}</h2>
+  <table class="tbl">
+    <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+    <tbody></tbody>
+  </table>
+</div>`).join('');
+
+    const afterBlocks = ui.fibActive ? `
+<div class="section">
+  <h2>Practice — Fill-in-the-Blank (${ui.fibLabel})</h2>
+  <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
+</div>
+<div class="section">
+  <h2>Answer Key</h2>
+  <table class="tbl"><thead><tr><th>#</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
+</div>` : `
+<div class="section">
+  <h2>Common Phrases</h2>
+  <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
+</div>
+<div class="section">
+  <h2>Full Vocabulary Index</h2>
+  <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
+</div>`;
+
+    const rulesBlock = [
+      `UI = ${uiJson}`,
+      `RULES (inject exact numbers):`,
+      `- Create EXACTLY ${ui.numConvos} conversation section(s).`,
+      `- Use exactly ${ui.numSpeakers} distinct speaker name(s) appropriate to the region.`,
+      `- Each conversation has EXACTLY ${ui.turns} turns (rows).`,
+      `- ABSOLUTE LENGTH COMPLIANCE: Each turn has between ${L.min} and ${L.max} sentences in BOTH columns.`,
+      `- Each sentence has between ${L.minWords} and ${L.maxWords} words.`,
+      `- Prefix ONLY the first sentence of each turn in both columns with the speaker name in brackets, e.g., [María] ...`,
+      `- Headers must be exactly "English" and "Español".`,
+      `- Tone: "${ui.tone}". Region: "${ui.region}". Level: ${ui.level}.`,
+      `- LEVEL RULES:\n  ${levelLines.map(s => `• ${s}`).join('\n  ')}`,
+      ui.fibActive
+        ? `- Include about ${Math.max(20, Math.min(ui.fibMax, ui.turns*2))} Fill-in-the-Blank items focused on: ${ui.fibOptions.join(', ')}.`
+        : `- Include Common Phrases + Full Vocabulary Index (words only) after conversations.`,
+      ui.fibActive
+        ? `- FIB English cell highlights exactly one <span class="en">…</span>; Spanish cell omits the word and shows its English meaning in parentheses; Answer Key lists full Spanish sentences with the missing word highlighted in <span class="es">…</span>.`
+        : ``,
+      `- No empty <tbody>. SELF-CHECK all constraints before returning.`
+    ].filter(Boolean).join('\n    ');
+
+    return `<!DOCTYPE html>
 <!-- FCS CONVERSATION OUTPUT -->
 <html lang="en">
 <head>
@@ -1240,29 +1263,11 @@ Formatting: Markdown tables; English | Español; no HTML; alphabetize English wi
   <div class="legend"><span class="en">EN vocab = blue</span> | <span class="es">ES vocab = red</span>.</div>
 
   <!-- CONTRACT:
-    UI = ${uiJson}
-    ${rules.map(r => `- ${r}`).join('\n    ')}
+    ${rulesBlock}
   -->
 
   ${conversationsHTML}
-
-  ${fib.active ? `
-  <div class="section">
-    <h2>Practice — Fill-in-the-Blank (${fibLabel})</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
-  </div>
-  <div class="section">
-    <h2>Answer Key</h2>
-    <table class="tbl"><thead><tr><th>#</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
-  </div>` : `
-  <div class="section">
-    <h2>Common Phrases</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
-  </div>
-  <div class="section">
-    <h2>Full Vocabulary Index</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
-  </div>`}
+  ${afterBlocks}
 
   ${ui.vocab && ui.vocab !== "(auto-generate level-appropriate list if empty)" ? 
     `<div class="legend" style="white-space:pre-wrap; border:1px dashed var(--border); padding:8px; border-radius:8px; margin-top:8px;">
@@ -1274,170 +1279,200 @@ Formatting: Markdown tables; English | Español; no HTML; alphabetize English wi
 </div>
 </body>
 </html>`;
-    }
+  }
 
-    // Validator for Conversation output
-    function convoValidator(html) {
-      try {
-        const doc = new DOMParser().parseFromString(html, 'text/html');
-        const L = getLengthPreset();
-        const expectedTurns = Math.max(1, Number($('c-turns').value) || 10);
-        const fib = getSelectedFIB();
-        const convSections = Array.from(doc.querySelectorAll('h2')).filter(h => /^Conversation\s+\d+/i.test(h.textContent));
-        if (!convSections.length) return 'Missing conversation sections.';
-        for (const h of convSections) {
-          const tbody = h.parentElement.querySelector('table tbody');
-          if (!tbody) return `${h.textContent}: table body missing.`;
-          const rows = Array.from(tbody.querySelectorAll('tr'));
-          if (rows.length !== expectedTurns) return `${h.textContent}: must have exactly ${expectedTurns} turns (rows). Found ${rows.length}.`;
-          for (let i = 0; i < rows.length; i++) {
-            const tds = rows[i].querySelectorAll('td');
-            if (tds.length < 2) return `${h.textContent}, row ${i+1}: needs two cells (English | Español).`;
-            const checkCell = (txt, label) => {
-              const clean = txt.replace(/^\s*🔊\s*(EN|ES)\s*/, '').trim();
-              const sents = splitIntoSentences(clean);
-              if (sents.length < L.minSent || sents.length > L.maxSent) {
-                return `${h.textContent}, row ${i+1} (${label}): must have ${L.minSent}–${L.maxSent} sentences; found ${sents.length}.`;
-              }
-              for (let k = 0; k < sents.length; k++) {
-                const words = sents[k].replace(/[“”"()]/g, '').trim().split(/\s+/).filter(Boolean);
-                if (words.length < L.minWords || words.length > L.maxWords) {
-                  return `${h.textContent}, row ${i+1} (${label}), sentence ${k+1}: has ${words.length} words; needs ${L.minWords}–${L.maxWords}.`;
-                }
-              }
-              return "";
-            };
-            const enErr = checkCell(tds[0].innerText, 'English'); if (enErr) return enErr;
-            const esErr = checkCell(tds[1].innerText, 'Español'); if (esErr) return esErr;
-          }
-        }
-        if (fib.active) {
-          const fibH = Array.from(doc.querySelectorAll('h2')).find(h => /Practice — Fill-in-the-Blank/i.test(h.textContent));
-          if (!fibH) return 'Missing "Practice — Fill-in-the-Blank" section.';
-          const fibBody = fibH.parentElement.querySelector('table tbody');
-          if (!fibBody) return 'FIB table body missing.';
-          const rows = Array.from(fibBody.querySelectorAll('tr'));
-          for (let i = 0; i < rows.length; i++) {
-            const tds = rows[i].querySelectorAll('td');
-            if (tds.length < 2) return `FIB row ${i+1}: needs two cells (English | Español).`;
-            const enHTML = tds[0].innerHTML;
-            if (!/<span\s+class="en">[^<]+<\/span>/i.test(enHTML)) {
-              return `FIB row ${i+1}: English cell must highlight the target word with <span class="en">…</span>.`;
+  function splitIntoSentences(text) { // reuse shared but ensure scoped here in case of refactor
+    const norm = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!norm) return [];
+    const parts = norm.match(/[^.!?]+[.!?]?/g) || [];
+    return parts.map(s => s.trim()).filter(Boolean);
+  }
+
+  // Validator (tightened for FIB + sentence ranges)
+  function convoValidator(html) {
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const L = getLengthPreset();
+      const expectedTurns = Math.max(1, Number($('c-turns').value) || 10);
+      const fib = getSelectedFIB();
+      const convSections = Array.from(doc.querySelectorAll('h2')).filter(h => /^Conversation\s+\d+/i.test(h.textContent));
+      if (!convSections.length) return 'Missing conversation sections.';
+      for (const h of convSections) {
+        const tbody = h.parentElement.querySelector('table tbody');
+        if (!tbody) return `${h.textContent}: table body missing.`;
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        if (rows.length !== expectedTurns) return `${h.textContent}: must have exactly ${expectedTurns} turns (rows). Found ${rows.length}.`;
+        for (let i = 0; i < rows.length; i++) {
+          const tds = rows[i].querySelectorAll('td');
+          if (tds.length < 2) return `${h.textcontent}, row ${i+1}: needs two cells (English | Español).`;
+          const checkCell = (txt, label) => {
+            const clean = txt.replace(/^\s*🔊\s*(EN|ES)\s*/, '').trim();
+            const sents = splitIntoSentences(clean);
+            if (sents.length < L.minSent || sents.length > L.maxSent) {
+              return `${h.textContent}, row ${i+1} (${label}): must have ${L.minSent}–${L.maxSent} sentences; found ${sents.length}.`;
             }
-            const esText = tds[1].innerText;
-            const esSents = splitIntoSentences(esText);
-            if (!esSents.length) return `FIB row ${i+1}: Spanish cell must include a sentence with the missing word hint.`;
-            for (let k = 0; k < esSents.length; k++) {
-              if (!/\([\w\s,'-]+\)/.test(esSents[k])) {
-                return `FIB row ${i+1}, Spanish sentence ${k+1}: must include the English meaning in parentheses.`;
-              }
-              if (esSents[k].includes('_')) {
-                return `FIB row ${i+1}, Spanish sentence ${k+1}: should not contain blank lines (underscores).`;
+            for (let k = 0; k < sents.length; k++) {
+              const words = sents[k].replace(/[“”"()]/g, '').trim().split(/\s+/).filter(Boolean);
+              if (words.length < L.minWords || words.length > L.maxWords) {
+                return `${h.textContent}, row ${i+1} (${label}), sentence ${k+1}: has ${words.length} words; needs ${L.minWords}–${L.maxWords}.`;
               }
             }
-          }
-          const ansH = Array.from(doc.querySelectorAll('h2')).find(h => /Answer Key/i.test(h.textContent));
-          if (!ansH) return 'Missing "Answer Key" section.';
-          const ansBody = ansH.parentElement.querySelector('table tbody');
-          if (!ansBody) return 'Answer Key table body missing.';
-          const answerRows = Array.from(ansBody.querySelectorAll('tr'));
-          for (let j = 0; j < answerRows.length; j++) {
-            const cells = answerRows[j].querySelectorAll('td');
-            if (cells.length < 2) return `Answer Key row ${j+1} must have two columns (# and Español sentence).`;
-            const num = cells[0].innerText.trim();
-            if (num !== String(j+1)) return `Answer Key row ${j+1} numbering is incorrect (got "${num}").`;
-            if (!cells[1].querySelector('span.es')) return `Answer Key row ${j+1}: missing highlighted answer word.`;
-          }
-        } else {
-          const phrasesH = Array.from(doc.querySelectorAll('h2')).find(h => /Common Phrases/i.test(h.textContent));
-          const indexH = Array.from(doc.querySelectorAll('h2')).find(h => /Full Vocabulary Index/i.test(h.textContent));
-          if (!phrasesH) return 'When FIB is none, include "Common Phrases".';
-          if (!indexH) return 'When FIB is none, include "Full Vocabulary Index".';
-          const idxBody = indexH.parentElement.querySelector('table tbody');
-          if (Array.from(idxBody.querySelectorAll('td')).some(td => /\.\s*$/.test(td.textContent.trim()))) {
-            return '"Full Vocabulary Index" must list only words/phrases (no sentences). Remove periods at ends.';
-          }
+            return "";
+          };
+          const enErr = checkCell(tds[0].innerText, 'English'); if (enErr) return enErr;
+          const esErr = checkCell(tds[1].innerText, 'Español'); if (esErr) return esErr;
         }
-        return "";
-      } catch (e) {
-        return "";
       }
-    }
-
-    $('c-gen').addEventListener('click', async () => {
-      const topic = $('c-topic').value.trim();
-      if (!topic) { statusEl.textContent = "Enter a topic."; return; }
-      await generateAndRender(buildConvoPrompt(), genBtn, statusEl, outputEl, convoValidator, 0);
-    });
-    $('c-prompt').addEventListener('click', () => {
-      const topic = $('c-topic').value.trim();
-      if (!topic) { statusEl.textContent = "Enter a topic."; return; }
-      copyText(buildConvoInstruction(), statusEl);
-    });
-    $('c-copy-mode').addEventListener('change', () => {
-      const mode = $('c-copy-mode').value;
-      if (!mode) return;
-      copyContent(mode, outputEl, statusEl);
-      $('c-copy-mode').selectedIndex = 0;
-    });
-    $('c-excel').addEventListener('click', () => downloadAsExcel(outputEl, statusEl, $('c-topic').value || 'Conversation'));
-
-    // Lock monologue settings if one speaker
-    $('c-numSpeakers').addEventListener('change', () => {
-      const spCount = Number($('c-numSpeakers').value) || 1;
-      if (spCount === 1) {
-        $('c-numConvos').value = 1;
-        $('c-numConvos').disabled = true;
-        $('c-turns').value = 1;
-        $('c-turns').disabled = true;
-        $('c-length').value = 'longest';
-        $('c-length').disabled = true;
+      if (fib.active) {
+        const fibH = Array.from(doc.querySelectorAll('h2')).find(h => /Practice — Fill-in-the-Blank/i.test(h.textContent));
+        if (!fibH) return 'Missing "Practice — Fill-in-the-Blank" section.';
+        const fibBody = fibH.parentElement.querySelector('table tbody');
+        if (!fibBody) return 'FIB table body missing.';
+        const rows = Array.from(fibBody.querySelectorAll('tr'));
+        if (rows.length === 0) return 'FIB must contain rows.';
+        if (rows.length > Math.min(100, expectedTurns*2)) return `FIB: too many items (>${Math.min(100, expectedTurns*2)}).`;
+        for (let i = 0; i < rows.length; i++) {
+          const tds = rows[i].querySelectorAll('td');
+          if (tds.length < 2) return `FIB row ${i+1}: needs two cells (English | Español).`;
+          const enHTML = tds[0].innerHTML;
+          if (!/<span\s+class="en">[^<]+<\/span>/i.test(enHTML)) {
+            return `FIB row ${i+1}: English cell must highlight the target word with <span class="en">…</span>.`;
+          }
+          const esText = tds[1].innerText;
+          if (/[—–_]/.test(esText)) return `FIB row ${i+1}: do not use dashes or underscores as blanks; replace with (English meaning).`;
+          const esSents = splitIntoSentences(esText);
+          if (!esSents.length) return `FIB row ${i+1}: Spanish cell must include a sentence with the missing word hint.`;
+          for (let k = 0; k < esSents.length; k++) {
+            if (!/\([\w\s,'-]+\)/.test(esSents[k])) {
+              return `FIB row ${i+1}, Spanish sentence ${k+1}: must include the English meaning in parentheses.`;
+            }
+          }
+        }
+        const ansH = Array.from(doc.querySelectorAll('h2')).find(h => /Answer Key/i.test(h.textContent));
+        if (!ansH) return 'Missing "Answer Key" section.';
+        const ansBody = ansH.parentElement.querySelector('table tbody');
+        if (!ansBody) return 'Answer Key table body missing.';
+        const answerRows = Array.from(ansBody.querySelectorAll('tr'));
+        if (answerRows.length !== rows.length) {
+          // If they don't match, it's still acceptable, but nudge a fix in the repair loop by returning a message.
+          return `Answer Key count (${answerRows.length}) must match FIB count (${rows.length}).`;
+        }
+        for (let j = 0; j < answerRows.length; j++) {
+          const cells = answerRows[j].querySelectorAll('td');
+          if (cells.length < 2) return `Answer Key row ${j+1} must have two columns (# and Español sentence).`;
+          const num = cells[0].innerText.trim();
+          if (num !== String(j+1)) return `Answer Key row ${j+1} numbering is incorrect (got "${num}").`;
+          if (!cells[1].querySelector('span.es')) return `Answer Key row ${j+1}: missing highlighted answer word.`;
+        }
       } else {
-        $('c-numConvos').disabled = false;
-        $('c-turns').disabled = false;
-        $('c-length').disabled = false;
+        const phrasesH = Array.from(doc.querySelectorAll('h2')).find(h => /Common Phrases/i.test(h.textContent));
+        const indexH = Array.from(doc.querySelectorAll('h2')).find(h => /Full Vocabulary Index/i.test(h.textContent));
+        if (!phrasesH) return 'When FIB is none, include "Common Phrases".';
+        if (!indexH) return 'When FIB is none, include "Full Vocabulary Index".';
+        const idxBody = indexH.parentElement.querySelector('table tbody');
+        if (Array.from(idxBody.querySelectorAll('td')).some(td => /\.\s*$/.test(td.textContent.trim()))) {
+          return '"Full Vocabulary Index" must list only words/phrases (no sentences). Remove periods at ends.';
+        }
       }
-    });
-  })();
+      return "";
+    } catch {
+      return "";
+    }
+  }
 
-  /* =========================
-     Test Generator (unchanged)
-     ========================= */
-  (function setupTest() {
-    const testUI = 
-      `<div class="fcs-card">
-        <h2>Test Creator</h2>
-        <div><label for="t-vocab">Vocabulary List</label><textarea id="t-vocab" rows="6" placeholder="Paste the EXACT vocabulary for the test..."></textarea></div>
-        <div><label for="t-level">Level (Grammar)</label>
-          <select id="t-level">
-            <option value="1" selected>Level 1 — Survival</option>
-            <option value="2">Level 2 — Beginner</option>
-            <option value="3">Level 3 — Intermediate</option>
-            <option value="4">Level 4 — Conversational</option>
-            <option value="5">Level 5 — Fluent</option>
-          </select>
-        </div>
-        <div><label><input type="checkbox" id="t-anskeys" checked> Include Teacher Answer Keys?</label></div>
-        <div class="actions">
-          <button id="t-gen" class="primary">Generate</button>
-          <button id="t-excel">Excel</button>
-          <button id="t-copy">Copy</button>
-          <div id="t-status" class="status"></div>
-        </div>
+  $('c-gen').addEventListener('click', async () => {
+    const topic = $('c-topic').value.trim();
+    if (!topic) { statusEl.textContent = "Enter a topic."; return; }
+    await generateAndRender(buildConvoPrompt(), genBtn, statusEl, outputEl, convoValidator, 0);
+  });
+
+  $('c-prompt').addEventListener('click', () => {
+    const topic = $('c-topic').value.trim();
+    if (!topic) { statusEl.textContent = "Enter a topic."; return; }
+    copyText(buildConvoInstruction(), statusEl);
+  });
+
+  $('c-copy-mode').addEventListener('change', () => {
+    const mode = $('c-copy-mode').value;
+    if (!mode) return;
+    copyContent(mode, outputEl, statusEl);
+    $('c-copy-mode').selectedIndex = 0;
+  });
+
+  $('c-excel').addEventListener('click', () => downloadAsExcel(outputEl, statusEl, $('c-topic').value || 'Conversation'));
+
+  // Lock monologue settings if one speaker (adds a hint but preserves your original locks)
+  $('c-numSpeakers').addEventListener('change', () => {
+    const spCount = Number($('c-numSpeakers').value) || 1;
+    if (spCount === 1) {
+      $('c-numConvos').value = 1;
+      $('c-numConvos').disabled = true;
+      $('c-turns').value = 1;
+      $('c-turns').disabled = true;
+      $('c-length').value = 'longest';
+      $('c-length').disabled = true;
+      if (!document.getElementById('mono-hint')) {
+        const hint = document.createElement('div');
+        hint.id = 'mono-hint';
+        hint.className = 'small';
+        hint.textContent = 'Monologue mode: 1 conversation, 1 turn, very long output.';
+        $('c-status').parentElement.insertBefore(hint, $('c-status'));
+      }
+    } else {
+      $('c-numConvos').disabled = false;
+      $('c-turns').disabled = false;
+      $('c-length').disabled = false;
+      const hint = document.getElementById('mono-hint');
+      if (hint) hint.remove();
+    }
+  });
+})();
+</script>
+
+
+  <script>
+/* =========================
+   Test Generator (REPLACED BLOCK)
+   ========================= */
+(function setupTest() {
+  const testUI = 
+    `<div class="fcs-card">
+      <h2>Test Creator</h2>
+      <div><label for="t-vocab">Vocabulary List</label><textarea id="t-vocab" rows="6" placeholder="Paste the EXACT vocabulary for the test..."></textarea></div>
+      <div><label for="t-level">Level (Grammar)</label>
+        <select id="t-level">
+          <option value="1" selected>Level 1 — Survival</option>
+          <option value="2">Level 2 — Beginner</option>
+          <option value="3">Level 3 — Intermediate</option>
+          <option value="4">Level 4 — Conversational</option>
+          <option value="5">Level 5 — Fluent</option>
+        </select>
       </div>
-      <div id="t-output" class="output-container"><p>Your test will appear here...</p></div>`;
-    $('gen-test').innerHTML = testUI;
+      <div><label><input type="checkbox" id="t-anskeys" checked> Include Teacher Answer Keys?</label></div>
+      <div class="actions">
+        <button id="t-gen" class="primary">Generate</button>
+        <button id="t-excel">Excel</button>
+        <select id="t-copy-mode">
+          <option value="" disabled selected>Copy…</option>
+          <option value="all">Copy All</option>
+          <option value="es-only">Copy Spanish Only</option>
+        </select>
+        <div id="t-status" class="status"></div>
+      </div>
+    </div>
+    <div id="t-output" class="output-container"><p>Your test will appear here...</p></div>`;
+  $('gen-test').innerHTML = testUI;
 
-    const genBtn = $('t-gen'),
-          excelBtn = $('t-excel'),
-          copyBtn = $('t-copy'),
-          statusEl = $('t-status'),
-          outputEl = $('t-output');
+  const genBtn = $('t-gen'),
+        excelBtn = $('t-excel'),
+        copySelect = $('t-copy-mode'),
+        statusEl = $('t-status'),
+        outputEl = $('t-output');
 
-    genBtn.addEventListener('click', async () => {
-      const v = $('t-vocab').value.trim();
-      if (!v) { statusEl.textContent = "Please paste a vocab list."; return; }
-      const prompt = `<!DOCTYPE html>
+  genBtn.addEventListener('click', async () => {
+    const v = $('t-vocab').value.trim();
+    if (!v) { statusEl.textContent = "Please paste a vocab list."; return; }
+    const prompt = `<!DOCTYPE html>
 <!-- FCS TEST OUTPUT -->
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Test — Level ${$('t-level').value}</title>
@@ -1485,21 +1520,30 @@ Formatting: Markdown tables; English | Español; no HTML; alphabetize English wi
   <div class="note">Vocabulary pasted by teacher:</div>
   <div class="note" style="white-space:pre-wrap; border:1px dashed var(--border); padding:8px; border-radius:8px;">${v.replace(/</g,"&lt;").replace(/>/g,"&gt;")}</div>
 </div></body></html>`;
-      try {
-        statusEl.textContent = "Generating...";
-        const html = await callAPI(prompt);
-        renderGenerated(html, outputEl);
-        statusEl.textContent = "Done.";
-      } catch (e) {
-        console.error(e);
-        statusEl.textContent = "Generation failed.";
-      }
-    });
+    try {
+      statusEl.textContent = "Generating...";
+      const html = await callAPI(prompt);
+      renderGenerated(html, outputEl);
+      await Speech.ensure();
+      addPerLineTTS(outputEl);
+      statusEl.textContent = "Done.";
+    } catch (e) {
+      console.error(e);
+      statusEl.textContent = "Generation failed.";
+    }
+  });
 
-    $('t-copy').addEventListener('click', () => copyToClipboard(outputEl, statusEl));
-    $('t-excel').addEventListener('click', () => downloadAsExcel($('t-output'), $('t-status'), 'Test'));
-  })();
+  // Copy options (now includes ES-only like other tabs)
+  $('t-copy-mode').addEventListener('change', () => {
+    const mode = $('t-copy-mode').value;
+    if (!mode) return;
+    copyContent(mode, outputEl, statusEl);
+    $('t-copy-mode').selectedIndex = 0;
+  });
+
+  $('t-excel').addEventListener('click', () => downloadAsExcel($('t-output'), $('t-status'), 'Test'));
 })();
 </script>
+
 </body>
 </html>
