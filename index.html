@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!DOCTYPE html> 
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
@@ -46,6 +46,20 @@
   .conv-ctrls button { padding:6px 10px; font-size:12px; }
 
   @media (max-width: 860px){ .six, .twelve { grid-column: span 12; } .grid-2 { grid-template-columns:1fr; } }
+</style>
+
+<!-- HIDE Conversation & Test tabs + tools (non-destructive) -->
+<style id="hide-convo-test">
+  /* Hide Conversation & Test tabs (buttons) */
+  #tab-convo,
+  #tab-test {
+    display: none !important;
+  }
+  /* Hide Conversation & Test panels/containers */
+  #gen-convo,
+  #gen-test {
+    display: none !important;
+  }
 </style>
 </head>
 <body>
@@ -314,7 +328,9 @@
         try {
           if (document.execCommand("copy")) statusEl.textContent = "Copied!";
           else statusEl.textContent = "Copy failed.";
-        } catch (e) { statusEl.textContent = "Copy failed."; }
+        } catch (e) {
+          statusEl.textContent = "Copy failed.";
+        }
         document.body.removeChild(t);
       }
     } catch (e) {
