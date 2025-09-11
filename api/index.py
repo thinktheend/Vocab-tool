@@ -85,6 +85,7 @@ Topic: “{topic}”
  Vocabulary range: {lo}–{hi} distinct Spanish vocabulary words (target the upper bound).
 0. Topic Title
 At the very top, present the topic title in a two-column Markdown table row.
+"|" is showing the sepration of column
 Format exactly like this (only once, at the very top):
 Title | Título
  Topic in English | Topic in Spanish
@@ -145,7 +146,8 @@ Write no more than 7 questions.
 Questions must be relevant to the topic.
 End with the same spacing rule.
 7. Conversations
-Create two sample conversations in a two-column table.
+Create two sample conversations in a two-column table. 
+Each conversations should have the title (Header) defining the conversation
 
 
 Each conversation is between two people.
