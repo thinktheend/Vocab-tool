@@ -81,6 +81,13 @@ def build_user_guidance_prompt(topic: str, lo: int, hi: int) -> str:
     return f"""You are an expert assistant for the FCS program.
  You must always follow every instruction below exactly.
  Never ask me follow-up questions, never stop early, and never skip or merge sections.
+ For each conversation, the header must include both its number and a descriptive name that defines what the conversation is about. For example: “Conversation 1 — Asking for pool equipment” / “Conversación 1 — Pidiendo equipo de piscina,” and “Conversation 2 — Making weekend swim plans” / “Conversación 2 — Haciendo planes de natación para el fin de semana.” Use the same format for both English and Spanish headers.
+ Enforce two-column structure in all sections
+
+All sections (Nouns, Verbs in Sentences, Adjectives, Adverbs, Common Phrases, Common Questions, Conversations, Monologue) must always be presented in a two-column Markdown table. The left column is always English, the right column is always Spanish. Each header row must explicitly define the columns (example: “English | Español”). Never use one-column or mixed formatting.
+Spacing & consistency reminder
+
+After every table or subsection, insert one completely blank row, then the new section title, then one blank line before the next table begins. This rule also applies between Conversation 1 and Conversation 2.
 Topic: “{topic}”
  Vocabulary range: {lo}–{hi} distinct Spanish vocabulary words (target the upper bound).
 0. Topic Title
