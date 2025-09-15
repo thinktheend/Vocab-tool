@@ -521,6 +521,47 @@
     $('gen-vocab').innerHTML = vocabUI;
 
     const genBtn = $('v-gen'),
+      // --- NEW: Section map + selection helpers ---
+const SECTION_LABELS = {
+  nouns: 'Nouns',
+  verbs: 'Verbs in Sentences',
+  adjectives: 'Adjectives',
+  adverbs: 'Adverbs',
+  phrases: 'Common Phrases',
+  questions: 'Common Questions'
+};
+
+function getSelectedVocabKeys() {
+  // childBoxes already defined above
+  const keys = childBoxes.filter(b => b.checked).map(b => b.value);
+  // If user unticks everything, fall back to all so UI isn't stuck elsewhere
+  return keys.length ? keys : Object.keys(SECTION_LABELS);
+}
+
+function getSelectedVocabTitles() {
+  return getSelectedVocabKeys().map(k => SECTION_LABELS[k]);
+}
+
+function sectionHTML(key) {
+  const title = SECTION_LABELS[key];
+  return `<div class="section"><h2>${title}</h2>
+    <table class="tbl">
+      <thead><tr><th>English</th><th lang="es">Español</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </div>`;
+}
+
+function pruneUnselectedVocabSections(container) {
+  const keep = new Set(getSelectedVocabTitles());
+  container.querySelectorAll('.section h2').forEach(h2 => {
+    const title = h2.textContent.trim();
+    if (!keep.has(title)) {
+      const sec = h2.closest('.section');
+      if (sec) sec.remove();
+    }
+  });
+}
           excelBtn = $('v-excel'),
           copySelect = $('v-copy-mode'),
           promptBtn = $('v-prompt'),
@@ -558,51 +599,96 @@
     updateUI();
 
     function buildVocabInstruction() {
-      let minCount, maxCount;
-      if (planEl.value === 'custom') {
-        minCount = Math.max(1, Math.min(300, Number(tminEl.value) || 1));
-        maxCount = Math.max(minCount, Math.min(300, Number(tmaxEl.value) || minCount));
-      } else {
-        const r = presetRanges[planEl.value];
-        minCount = r.min; maxCount = r.max;
-      }
-      const topic = (topicEl.value || '').trim();
-      return [
-        `You are an expert assistant for the FCS program.`,
-        `Topic: “${topic}”.`,
-        `Vocabulary range: ${minCount}–${maxCount} distinct Spanish vocabulary words (target the upper bound).`,
-        `ABSOLUTE LENGTH COMPLIANCE: Produce at least ${minCount} and at most ${maxCount} total vocabulary items. Do not under-deliver.`,
-        `Organize the output into 6 parts:`,
-        `1. Nouns — ALWAYS subdivide into logical subcategories (e.g., People; Places; Objects/Equipment; Actions/Tools). Use subcategory header rows INSIDE the nouns table.`,
-        `2. Verbs in Sentences`,
-        `3. Adjectives`,
-        `4. Adverbs`,
-        `5. Common Phrases`,
-        `6. Common Questions (no answers)`,
-        `Allocate roughly 30% of the total vocabulary to Nouns, 30% to Verbs, 15% to Adjectives, and 15% to Adverbs (by count of Spanish terms). Indicate the count of items in each section and noun subcategory heading.`,
-        `Include at least 10 Common Phrases and 10 Common Questions (increase counts for higher vocabulary totals).`,
-        `For Nouns: use "the ..." in English. In Spanish, include the article (el, la) and if a noun has both masculine and feminine forms, include the feminine in parentheses (masculine form first).`,
-        `For Adjectives and Adverbs: present each vocabulary item with its opposite (antonym) in a pair of sentences (first using the word, second using its antonym).`,
-        `Highlight only the target verbs, adjectives, and adverbs in the sentences (do not color surrounding words or punctuation).`,
-        `Formatting: Markdown tables; English | Español; no HTML; alphabetize English within each subcategory; keep total within requested range; stay on topic.`,
-        `Self-check counts internally before responding.`
-      ].join('\n');
-    }
+  let minCount, maxCount;
+  if (planEl.value === 'custom') {
+    minCount = Math.max(1, Math.min(300, Number(tminEl.value) || 1));
+    maxCount = Math.max(minCount, Math.min(300, Number(tmaxEl.value) || minCount));
+  } else {
+    const r = presetRanges[planEl.value];
+    minCount = r.min; maxCount = r.max;
+  }
+  const topic = (topicEl.value || '').trim();
+  const selKeys = getSelectedVocabKeys();
+  const selTitles = selKeys.map(k => SECTION_LABELS[k]);
+  const lines = [
+    `You are an expert assistant for the FCS program.`,
+    `Topic: “${topic}”.`,
+    `Vocabulary range: ${minCount}–${maxCount} distinct Spanish vocabulary words (target the upper bound).`,
+    `ABSOLUTE LENGTH COMPLIANCE: Produce at least ${minCount} and at most ${maxCount} total Spanish vocabulary items.`,
+    `Generate ONLY the following sections, IN THIS EXACT ORDER: ${selTitles.join(', ')}.`,
+    `Do NOT include any unlisted sections, headers, placeholders, or extra content.`,
+    `Distribute the vocabulary proportionally across the selected sections. If a section is not selected, ignore any rules that apply only to that section.`,
+    `Formatting: Markdown tables; two columns exactly: "English" | "Español"; no HTML; alphabetize English within each nouns subcategory; strictly stay on topic.`
+  ];
+
+  if (selKeys.includes('nouns')) {
+    lines.push(
+      `SECTION — Nouns:`,
+      `• Use bold article + noun in BOTH languages; English should use "the ...".`,
+      `• ALWAYS subdivide into logical subcategories (e.g., People; Places; Objects/Equipment; Actions/Tools) with subcategory header rows INSIDE the table (colspan=2).`,
+      `• Alphabetize English terms within each subcategory.`,
+      `• Indicate the item count in each subcategory header.`
+    );
+  }
+  if (selKeys.includes('verbs')) {
+    lines.push(
+      `SECTION — Verbs in Sentences:`,
+      `• English sentences use "is/are going to **to + verb**"; Spanish uses the infinitive in bold.`,
+      `• Include a mix where nouns from Nouns act as subjects/objects; also include some generic 3rd-person subjects.`,
+      `• Highlight ONLY the target verb (not surrounding words).`
+    );
+  }
+  if (selKeys.includes('adjectives')) {
+    lines.push(
+      `SECTION — Adjectives:`,
+      `• Pair nouns from Nouns with "is/are + **adjective**" (bold ONLY the adjective).`,
+      `• Provide contrasting or related adjective pairs across items.`
+    );
+  }
+  if (selKeys.includes('adverbs')) {
+    lines.push(
+      `SECTION — Adverbs:`,
+      `• Reuse verbs from the Verbs section and modify them with **adverbs** (bold ONLY the adverb).`,
+      `• Ensure adverbs fit the topic context.`
+    );
+  }
+  if (selKeys.includes('phrases')) {
+    lines.push(
+      `SECTION — Common Phrases:`,
+      `• Include topic-relevant phrases.`,
+      `• At least 10 if total range permits; otherwise scale reasonably.`
+    );
+  }
+  if (selKeys.includes('questions')) {
+    lines.push(
+      `SECTION — Common Questions:`,
+      `• Include topic-relevant questions only (no answers).`,
+      `• At least 10 if total range permits; otherwise scale reasonably.`
+    );
+  }
+  return lines.join('\n');
+}
+
 
     function buildVocabPrompt() {
-      const rawPrompt = buildVocabInstruction();
-      const topic = safeForScriptTemplate((topicEl.value || '').trim());
-      return `<!DOCTYPE html>
+  const rawPrompt = buildVocabInstruction();
+  const topic = safeForScriptTemplate((topicEl.value || '').trim());
+  const selKeys = getSelectedVocabKeys();
+  const selTitles = selKeys.map(k => SECTION_LABELS[k]);
+  const nounsRule = selKeys.includes('nouns')
+    ? '• Nouns section MUST contain subcategory header rows (colspan=2).'
+    : '';
+  const sectionsHTML = selKeys.map(sectionHTML).join('\n');
+
+  return `<!DOCTYPE html>
 <!-- FCS VOCABULARY OUTPUT
   IMPORTANT: First internally answer the Markdown prompt below EXACTLY, then render the SAME content as styled HTML.
   ===== PROMPT =====
 ${rawPrompt}
   ==================
   RENDERING RULES:
-  • 6 sections, each with a single 2-col table (English | Español) in this order:
-    1) Nouns; 2) Verbs in Sentences; 3) Adjectives; 4) Adverbs; 5) Common Phrases; 6) Common Questions
-  • Nouns section MUST contain subcategory header rows (colspan=2), one per subcategory.
-  • Spanish vocabulary in colored spans where specified by your contract for sections 1–4.
+  • Render tables ONLY for these sections, in this exact order: ${selTitles.join(', ')}.
+  ${nounsRule}
 -->
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -624,27 +710,10 @@ ${rawPrompt}
 </style></head>
 <body><div class="fcs-doc" lang="en">
   <h1>Vocabulary: ${topic}</h1>
-
-  <div class="section"><h2>Nouns</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
-  </div>
-  <div class="section"><h2>Verbs in Sentences</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
-  </div>
-  <div class="section"><h2>Adjectives</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
-  </div>
-  <div class="section"><h2>Adverbs</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
-  </div>
-  <div class="section"><h2>Common Phrases</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
-  </div>
-  <div class="section"><h2>Common Questions</h2>
-    <table class="tbl"><thead><tr><th>English</th><th lang="es">Español</th></tr></thead><tbody></tbody></table>
-  </div>
+  ${sectionsHTML}
 </div></body></html>`;
-    }
+}
+
 
     // Validator for Vocabulary output
     function vocabValidator(html) {
