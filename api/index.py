@@ -21,6 +21,53 @@ RANGE_RE = re.compile(
 
 TOPIC_RE = re.compile(r"<title>\s*Vocabulary\s*[—-]\s*(.*?)\s*</title>", re.IGNORECASE | re.DOTALL)
 
+# -----------------------
+# Section selection normalization
+# -----------------------
+
+SECTION_KEYS = {
+    "nouns": r"Nouns",
+    "verbs": r"Verbs\s+in\s+Sentences",
+    "adjectives": r"Adjectives",
+    "adverbs": r"Adverbs",
+    "phrases": r"Common\s+Phrases",
+    "questions": r"Common\s+Questions",
+}
+
+ALL_KEYS = tuple(SECTION_KEYS.keys())
+
+def _normalize_sections(selected):
+    """
+    Normalize UI 'Sections to Include' values to our canonical keys.
+    Recognizes light variations; defaults to ALL if empty/invalid.
+    """
+    out = set()
+    for s in (selected or []):
+        k = re.sub(r'[^a-z]+', '', str(s).lower())
+        if k in ("noun", "nouns"):
+            out.add("nouns")
+        elif k in ("verb", "verbs"):
+            out.add("verbs")
+        elif k in ("adjective", "adjectives", "adj", "adjs"):
+            out.add("adjectives")
+        elif k in ("adverb", "adverbs", "adv", "advs"):
+            out.add("adverbs")
+        elif k in ("phrase", "phrases", "commonphrases", "commonphrasessection"):
+            out.add("phrases")
+        elif k in ("question", "questions", "commonquestions", "commonquestionssection"):
+            out.add("questions")
+    if not out:
+        # Back-compat: if nothing selected or unknown values => include everything
+        out = set(ALL_KEYS)
+    return out
+
+def _inclusion_flags(selected_set):
+    return {k: (k in selected_set) for k in ALL_KEYS}
+
+# -----------------------
+# Basic parsing helpers
+# -----------------------
+
 def parse_vocab_range(prompt_text: str):
     m = RANGE_RE.search(prompt_text or "")
     if not m:
@@ -70,7 +117,7 @@ def phrases_questions_row_targets(total_vocab_midpoint: int):
     return rows, rows
 
 # -----------------------
-# Guidance (verbatim block you provided)
+# Guidance (verbatim block you provided — kept intact)
 # -----------------------
 def build_user_guidance_prompt(topic: str, lo: int, hi: int) -> str:
     return f"""You are an expert assistant for the FCS program.
@@ -263,13 +310,14 @@ Never stop early. Never ask me if you should continue.
 Always keep vocabulary count between 200–250 distinct Spanish words.
 """
 
-def build_system_message(base_system: str, user_prompt: str) -> str:
+def build_system_message(base_system: str, user_prompt: str, selected_sections=None) -> str:
     """
-    Vocabulary prompt: add strict contract enforcing:
-      - midpoint quotas for sections 1–4
-      - Common Phrases & Questions present (8–10 rows each, ≤10)
-      - color rules + feminine parenthetical handling
-      - quotas/range from UI override any conflicting guidance
+    Vocabulary prompt: add strict contract enforcing, **respecting UI multi-select**:
+      - ONLY populate selected sections; leave others empty (<tbody> with zero <tr> rows).
+      - midpoint quotas for sections 1–4, applied ONLY to those selected.
+      - Common Phrases & Questions row minima only if selected.
+      - color rules + feminine parenthetical handling.
+      - quotas/range from UI override any conflicting guidance.
     """
     if not IS_VOCAB_RE.search(user_prompt or ""):
         return base_system
@@ -278,34 +326,82 @@ def build_system_message(base_system: str, user_prompt: str) -> str:
     if lo is None or hi is None:
         return base_system
 
+    # Normalize selection & inclusion flags
+    selected = _normalize_sections(selected_sections)
+    inc = _inclusion_flags(selected)
+
     topic = parse_topic(user_prompt)
     target_total = midpoint(lo, hi)
     n, v, a, d = quotas_30_30_15_15(target_total)
+
+    # Only enforce quotas for included sections
+    quotas_lines = []
+    included_total = 0
+    if inc["nouns"]:
+        quotas_lines.append(f"  – Nouns: {n}")
+        included_total += n
+    if inc["verbs"]:
+        quotas_lines.append(f"  – Verbs: {v}")
+        included_total += v
+    if inc["adjectives"]:
+        quotas_lines.append(f"  – Adjectives: {a}")
+        included_total += a
+    if inc["adverbs"]:
+        quotas_lines.append(f"  – Adverbs: {d}")
+        included_total += d
+    quotas_block = "\n".join(quotas_lines) if quotas_lines else "  – (No N/V/A/D sections selected.)"
+
     phrases_min, questions_min = phrases_questions_row_targets(target_total)
+    # Allow reuse budget proportional to full target; safe & unchanged
     max_reuse = max(1, (target_total * 20 + 99) // 100)  # ceil(20%)
 
     guidance = build_user_guidance_prompt(topic, lo, hi)
+
+    # Build human-readable selected list for the contract
+    selected_names = []
+    for key in ["nouns", "verbs", "adjectives", "adverbs", "phrases", "questions"]:
+        if inc[key]:
+            # Human title
+            human = re.sub(r'\\s\\+',' ', SECTION_KEYS[key])
+            # For display (without regex escapes)
+            selected_names.append({
+                "nouns": "Nouns",
+                "verbs": "Verbs in Sentences",
+                "adjectives": "Adjectives",
+                "adverbs": "Adverbs",
+                "phrases": "Common Phrases",
+                "questions": "Common Questions",
+            }[key])
+    selected_names_str = ", ".join(selected_names) if selected_names else "(none)"
+
+    # Explain which sections are allowed and which must stay empty.
+    allow_list = selected_names_str
+    forbid_note = "All other vocabulary sections must remain with EMPTY <tbody> (no <tr> rows)."
 
     contract = f"""
 
 STRICT ONE-SHOT COUNTING CONTRACT (Vocabulary ONLY; do NOT change UI/format):
 • OVERRIDE RULE (CRITICAL): If ANY text anywhere (including the "REFERENCE GUIDANCE FROM USER" below)
-  conflicts with the numeric quotas/range derived from the user's HTML prompt, the quotas below PREVAIL.
-• REQUIRED SECTIONS (must exist and have at least one <tr> in <tbody>): 
-  Nouns; Verbs in Sentences; Adjectives; Adverbs; Common Phrases; Common Questions.
-• TARGET TOTAL (sections 1–4 only): EXACTLY {target_total} Spanish vocabulary items counted by
-  the number of <span class="es">…</span> target words in Nouns, Verbs, Adjectives, Adverbs.
-• PER-SECTION QUOTAS (enforce exactly):
-  – Nouns: {n}
-  – Verbs: {v}
-  – Adjectives: {a}
-  – Adverbs: {d}
-• COMMON PHRASES & COMMON QUESTIONS — MANDATORY:
-  – Populate BOTH sections with table rows inside their existing <tbody>.
-  – Number of rows in EACH section: between {max(8, phrases_min)} and 10 inclusive (NEVER exceed 10).
-  – Reuse only vocabulary from sections 1–4 (no new vocabulary). Distinct reused words
+  conflicts with the quotas/range derived from the user's HTML prompt and the UI 'Sections to Include', the rules here PREVAIL.
+
+• SELECTED SECTIONS (the ONLY sections you may populate by inserting <tr> rows into existing <tbody>):
+  {allow_list}
+  {forbid_note}
+
+• TARGET TOTAL for counts (apply ONLY across SELECTED items among sections 1–4):
+  EXACTLY {included_total} total Spanish vocabulary items counted by the number of
+  <span class="es">…</span> target words in the SELECTED subset of: Nouns, Verbs, Adjectives, Adverbs.
+
+• PER-SECTION QUOTAS (enforce exactly for SELECTED sections):
+{quotas_block}
+
+• COMMON PHRASES & COMMON QUESTIONS:
+  – Only if included in the selection. If included, populate table rows inside their existing <tbody>.
+  – Number of rows in EACH included Common section: between {max(8, phrases_min)} and 10 inclusive (NEVER exceed 10).
+  – Reuse only vocabulary from selected sections 1–4 (no new vocabulary). Distinct reused words
     across BOTH sections combined must be ≤ {max_reuse} (≈20% of {target_total}).
-  – Rows in these sections do NOT count toward the {target_total} total.
+  – Rows in these sections do NOT count toward the {included_total} total.
+
 • COLORING & LINGUISTICS:
   – Verbs: English cell may color ONLY the verb/particle after “to …” with <span class="en">…</span>; 
     “is/are going to” must remain black. Spanish cell must color ONLY the infinitive with <span class="es">…</span>. 
@@ -313,13 +409,16 @@ STRICT ONE-SHOT COUNTING CONTRACT (Vocabulary ONLY; do NOT change UI/format):
   – Adverbs: highlight ONLY the adverb in both columns; do NOT color “is/are going to” (EN) or “va a” (ES).
   – Nouns: Spanish uses article; IF a noun commonly has both genders, show masculine first and optionally the feminine 
     in parentheses — but the parenthetical must NOT be red. The English noun word itself should be blue.
+
 • RENDERING BOUNDARIES — CRITICAL:
   – Use the HTML skeleton from the user's prompt AS-IS (no Markdown, no new sections).
-  – ONLY populate: Nouns; Verbs in Sentences; Adjectives; Adverbs; Common Phrases; Common Questions.
-  – Insert ONLY <tr> row content into each existing <tbody>. Do NOT add extra tables or headers.
+  – ONLY populate the SELECTED sections by inserting <tr> row content into their existing <tbody>.
+  – LEAVE all UNSELECTED sections' <tbody> EMPTY (no <tr> rows inserted).
+
 • SELF-CHECK BEFORE SENDING:
-  – Ensure exact per-section quotas and grand total in sections 1–4.
-  – Ensure BOTH Common sections exist and have 8–10 rows each (≤10).
+  – Ensure exact per-section quotas for SELECTED sections among Nouns/Verbs/Adjectives/Adverbs.
+  – Ensure included Common sections (if any) have between {max(8, phrases_min)} and 10 rows (≤10).
+  – Ensure UNSELECTED sections have ZERO <tr> in <tbody>.
   – Ensure well-formed HTML that fits the provided skeleton.
 
 # REFERENCE GUIDANCE FROM USER (structure only — still render into provided HTML):
@@ -387,16 +486,11 @@ def ensure_nouns_en_blue_and_parentheses_plain(body_html: str) -> str:
                                es_td, flags=re.IGNORECASE)
 
                 # ES: ensure exactly ONE span on main noun after article
-                # Find article + noun (avoid wrapping article; avoid parentheses)
-                # Pattern captures article (1) and main noun (2)
                 art_noun_pat = r'\b(el|la|los|las)\s+([a-záéíóúüñ/]+)'
-                # Remove any existing multiple <span class="es">…</span> first, keeping bare text
-                # but not touching parentheses that we already cleaned.
                 def collapse_multi_spans(s):
                     return re.sub(r'<span\s+class="es">\s*([^<]+?)\s*</span>', r'\1', s, flags=re.IGNORECASE)
                 es_clean = collapse_multi_spans(es_td)
 
-                # Re-wrap the main noun if present
                 if re.search(art_noun_pat, es_clean, flags=re.IGNORECASE):
                     es_wrapped = re.sub(
                         art_noun_pat,
@@ -404,7 +498,6 @@ def ensure_nouns_en_blue_and_parentheses_plain(body_html: str) -> str:
                         es_clean, count=1, flags=re.IGNORECASE
                     )
                 else:
-                    # Fallback: wrap first bare word outside parentheses
                     es_wrapped = es_clean
                     if '<span class="es">' not in es_wrapped:
                         es_wrapped = re.sub(r'>(\s*)([A-Za-zÁÉÍÓÚÜÑáéíóúüñ/]+)',
@@ -435,7 +528,6 @@ def fix_verbs_highlight(body_html: str) -> str:
     aux_pat = r'(voy|vas|va|vamos|vais|van)\s+a\s+([a-záéíóúüñ]+(?:se)?)'
 
     def fix_one_tbody(tb):
-        # Move highlight away from 'va a' into the infinitive when needed
         s = tb
         s = re.sub(
             r'<span\s+class="es">([^<]*?)\b(voy|vas|va|vamos|vais|van)\s+a\s+([a-záéíóúüñ/]+)\b([^<]*?)</span>',
@@ -447,32 +539,25 @@ def fix_verbs_highlight(body_html: str) -> str:
         )
         s = re.sub(r'<span\s+class="es">\s*(va\s*a)\s*</span>', r'\1', s, flags=re.IGNORECASE)
 
-        # EN: unwrap any colored "is/are going to"
         s = re.sub(r'<span\s+class="en">\s*(is|are)\s+going\s+to\s*</span>',
                    r'\1 going to', s, flags=re.IGNORECASE)
 
-        # Ensure exactly one ES span in ES cell by wrapping the infinitive if missing
         def fix_row(row_html: str) -> str:
             tds = _get_cells(row_html)
             if len(tds) >= 2:
                 es_td = tds[1].group(0)
-                # Remove accidental multiple ES spans, keep bare text
                 es_td_clean = re.sub(r'<span\s+class="es">\s*([^<]+?)\s*</span>', r'\1', es_td, flags=re.IGNORECASE)
-                # Try to wrap infinitive after 'a '
                 if re.search(aux_pat, es_td_clean, flags=re.IGNORECASE):
                     es_td_wrapped = re.sub(aux_pat,
                                            lambda m: f'{m.group(1)} a <span class="es">{m.group(2)}</span>',
                                            es_td_clean, count=1, flags=re.IGNORECASE)
                 else:
-                    # Fallback: wrap last word (likely the infinitive)
                     if '<span class="es">' not in es_td_clean:
                         es_td_wrapped = re.sub(r'([A-Za-zÁÉÍÓÚÜÑáéíóúüñ/]+)(\s*)(</td>)',
                                                r'<span class="es">\1</span>\2\3',
                                                es_td_clean, count=1, flags=re.IGNORECASE)
                     else:
                         es_td_wrapped = es_td_clean
-
-                # rebuild row
                 start1, end1 = tds[1].span()
                 row_html = row_html[:start1] + es_td_wrapped + row_html[end1:]
             return row_html
@@ -501,10 +586,8 @@ def fix_adverbs_highlight(body_html: str) -> str:
             tds = _get_cells(row_html)
             if len(tds) >= 2:
                 es_td = tds[1].group(0)
-                # Remove accidental multiple ES spans, keep bare text
                 es_td_clean = re.sub(r'<span\s+class="es">\s*([^<]+?)\s*</span>', r'\1', es_td, flags=re.IGNORECASE)
                 if '<span class="es">' not in es_td_clean:
-                    # Prefer -mente adverb
                     if re.search(r'\b([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+mente)\b', es_td_clean, flags=re.IGNORECASE):
                         es_td_wrapped = re.sub(r'\b([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]+mente)\b',
                                                r'<span class="es">\1</span>',
@@ -514,13 +597,11 @@ def fix_adverbs_highlight(body_html: str) -> str:
                                                r'<span class="es">\1</span>',
                                                es_td_clean, count=1, flags=re.IGNORECASE)
                     else:
-                        # Fallback: wrap last non-trivial token (avoid 'va', 'a')
                         es_td_wrapped = re.sub(r'([A-Za-zÁÉÍÓÚÜÑáéíóúüñ]{3,})(\s*)(</td>)',
                                                r'<span class="es">\1</span>\2\3',
                                                es_td_clean, count=1, flags=re.IGNORECASE)
                 else:
                     es_td_wrapped = es_td_clean
-                # rebuild row
                 start1, end1 = tds[1].span()
                 row_html = row_html[:start1] + es_td_wrapped + row_html[end1:]
             return row_html
@@ -569,34 +650,74 @@ def verify_vocab_counts(full_html: str):
     sec["q_rows"] = _count_rows(questions_body)
     return sec
 
-def needs_repair(counts, quotas, rows_minmax):
-    n,v,a,d = quotas
-    pmin,_ = rows_minmax
-    return (
-        counts.get("n",0) != n or
-        counts.get("v",0) != v or
-        counts.get("a",0) != a or
-        counts.get("d",0) != d or
-        counts.get("phr_rows",0) < pmin or counts.get("phr_rows",0) > 10 or
-        counts.get("q_rows",0) < pmin or counts.get("q_rows",0) > 10
-    )
+def needs_repair(counts, quotas, rows_minmax, inc_flags):
+    """
+    Enforce quotas ONLY for included sections. Ignore others (expected to be empty).
+    For Common sections, enforce min/max only if included.
+    """
+    n, v, a, d = quotas
+    pmin, _ = rows_minmax
 
-def build_repair_prompt(lo, hi, quotas, rows_min):
-    n,v,a,d = quotas
-    total = n+v+a+d
+    if inc_flags.get("nouns") and counts.get("n", 0) != n:
+        return True
+    if inc_flags.get("verbs") and counts.get("v", 0) != v:
+        return True
+    if inc_flags.get("adjectives") and counts.get("a", 0) != a:
+        return True
+    if inc_flags.get("adverbs") and counts.get("d", 0) != d:
+        return True
+
+    if inc_flags.get("phrases"):
+        if counts.get("phr_rows", 0) < pmin or counts.get("phr_rows", 0) > 10:
+            return True
+    if inc_flags.get("questions"):
+        if counts.get("q_rows", 0) < pmin or counts.get("q_rows", 0) > 10:
+            return True
+
+    return False
+
+def build_repair_prompt(lo, hi, quotas, rows_min, inc_flags):
+    """
+    Build a dynamic repair prompt that only mentions selected sections and their quotas/row minima.
+    """
+    n, v, a, d = quotas
+    lines = []
+    total = 0
+    if inc_flags.get("nouns"):
+        lines.append(f"   • Nouns: {n}")
+        total += n
+    if inc_flags.get("verbs"):
+        lines.append(f"   • Verbs: {v}")
+        total += v
+    if inc_flags.get("adjectives"):
+        lines.append(f"   • Adjectives: {a}")
+        total += a
+    if inc_flags.get("adverbs"):
+        lines.append(f"   • Adverbs: {d}")
+        total += d
+    quotas_block = "\n".join(lines) if lines else "   • (No N/V/A/D sections selected.)"
+
+    common_rules = []
+    if inc_flags.get("phrases") or inc_flags.get("questions"):
+        inc_list = []
+        if inc_flags.get("phrases"): inc_list.append('"Common Phrases"')
+        if inc_flags.get("questions"): inc_list.append('"Common Questions"')
+        inc_str = " and ".join(inc_list) if len(inc_list) == 2 else inc_list[0]
+        common_rules.append(f"2) COMMON SECTIONS — PRESENT ONLY IF SELECTED ({inc_str}):")
+        if inc_flags.get("phrases"):
+            common_rules.append(f"   • \"Common Phrases\" must have between {rows_min} and 10 rows inclusive.")
+        if inc_flags.get("questions"):
+            common_rules.append(f"   • \"Common Questions\" must have between {rows_min} and 10 rows inclusive.")
+    common_block = "\n".join(common_rules) if common_rules else "2) COMMON SECTIONS — NONE SELECTED (leave their <tbody> empty)."
+
     return f"""<!-- FIX STRICTLY:
 COUNT & SECTION MISMATCH — regenerate using the SAME HTML skeleton and meet EXACTLY these constraints:
 
-1) EXACT PER-SECTION COUNTS (sections 1–4 only; count by <span class="es">…</span> in each section):
-   • Nouns: {n}
-   • Verbs: {v}
-   • Adjectives: {a}
-   • Adverbs: {d}
-   TOTAL across sections 1–4 must be exactly {total}.
+1) EXACT PER-SECTION COUNTS (apply ONLY to SELECTED among sections 1–4; count by <span class="es">…</span> in each section):
+{quotas_block}
+   TOTAL across SELECTED sections 1–4 must be exactly {total}.
 
-2) COMMON SECTIONS — ALWAYS PRESENT:
-   • "Common Phrases" and "Common Questions" must each have between {rows_min} and 10 rows inclusive.
-   • Do not exceed 10 rows in either section.
+{common_block}
 
 3) COLORING RULES (do not affect counts beyond targets above):
    • Verbs/Adverbs: NEVER color "is/are going to" (EN) or "va a" (ES).
@@ -606,7 +727,7 @@ COUNT & SECTION MISMATCH — regenerate using the SAME HTML skeleton and meet EX
 4) FORMAT BOUNDARIES:
    • Do NOT modify headers/sections/tables outside inserting <tr> content into existing <tbody>.
    • Do NOT add/remove sections. Do NOT add commentary.
-   • Keep within the original range {lo}–{hi} by ensuring sections 1–4 sum to exactly {total}.
+   • Keep within the original range {lo}–{hi} by ensuring SELECTED sections 1–4 sum to exactly {total}.
 
 Return FULL corrected HTML only.
 -->"""
@@ -644,14 +765,21 @@ def _inject_rows_into_section(full_html: str, section_title_regex: str, new_rows
     section_html_fixed = section_html.replace(tb_m.group(0), f"{before}{body}{after}", 1)
     return full_html.replace(m.group(0), f"{m.group(1)}{section_html_fixed}{m.group(3)}", 1)
 
-def _ensure_common_minimum(full_html: str, min_rows: int = 8, max_rows: int = 10) -> str:
+def _ensure_common_minimum(full_html: str, min_rows: int = 8, max_rows: int = 10, inc_flags=None) -> str:
+    """
+    Ensure Common Phrases/Questions have at least min_rows (≤10) — ONLY if included.
+    """
+    inc_flags = inc_flags or {}
+    if not (inc_flags.get("phrases") or inc_flags.get("questions")):
+        return full_html
+
     phrases_body = _tbody_inner(_extract_section_body(full_html, r"Common\s+Phrases"))
     questions_body = _tbody_inner(_extract_section_body(full_html, r"Common\s+Questions"))
-    phr_has = _count_rows(phrases_body)
-    q_has = _count_rows(questions_body)
+    phr_has = _count_rows(phrases_body) if inc_flags.get("phrases") else 0
+    q_has = _count_rows(questions_body) if inc_flags.get("questions") else 0
 
-    need_phr = max(0, min_rows - phr_has)
-    need_q = max(0, min_rows - q_has)
+    need_phr = max(0, min_rows - phr_has) if inc_flags.get("phrases") else 0
+    need_q = max(0, min_rows - q_has) if inc_flags.get("questions") else 0
     if need_phr == 0 and need_q == 0:
         return full_html
 
@@ -685,6 +813,33 @@ def _ensure_common_minimum(full_html: str, min_rows: int = 8, max_rows: int = 10
         if add > 0:
             full_html = _inject_rows_into_section(full_html, r"Common\s+Questions", make_question_rows(add))
 
+    return full_html
+
+# -----------------------
+# Section clearing for unselected (guarantee empty tbody)
+# -----------------------
+
+def _clear_section_tbody(full_html: str, section_title_regex: str) -> str:
+    m = re.search(rf'(<h2>\s*{section_title_regex}\s*</h2>)(.*?)(</div>)',
+                  full_html, flags=re.IGNORECASE | re.DOTALL)
+    if not m:
+        return full_html
+    section_html = m.group(2)
+    tb_m = re.search(r'(<tbody[^>]*>)(.*?)(</tbody>)', section_html, flags=re.IGNORECASE | re.DOTALL)
+    if not tb_m:
+        return full_html
+    # Keep tbody but empty its contents
+    cleared = f"{tb_m.group(1)}{''}{tb_m.group(3)}"
+    section_html_fixed = section_html.replace(tb_m.group(0), cleared, 1)
+    return full_html.replace(m.group(0), f"{m.group(1)}{section_html_fixed}{m.group(3)}", 1)
+
+def filter_unselected_sections(full_html: str, inc_flags) -> str:
+    """
+    Ensure unselected sections have empty <tbody>.
+    """
+    for key, title_re in SECTION_KEYS.items():
+        if not inc_flags.get(key, True):
+            full_html = _clear_section_tbody(full_html, title_re)
     return full_html
 
 # -----------------------
@@ -723,6 +878,11 @@ class handler(BaseHTTPRequestHandler):
             if not prompt:
                 raise ValueError("Missing 'prompt' in request body.")
 
+            # NEW: read selected sections (multi-select from UI)
+            selected_sections = data.get("sections", None)
+            selected_set = _normalize_sections(selected_sections)
+            inc_flags = _inclusion_flags(selected_set)
+
             api_key = os.environ.get("OPENAI_API_KEY")
             if not api_key:
                 raise ValueError("Server configuration error: OPENAI_API_KEY is not set.")
@@ -735,7 +895,7 @@ class handler(BaseHTTPRequestHandler):
 
             max_tokens = min(int(os.getenv("MODEL_MAX_TOKENS", "10000")), 16384)
 
-            # Base system message = your last known-good text
+            # Base system message = your last known-good text (kept intact)
             base_system = (
                 "You are an expert FCS assistant. Return ONLY full raw HTML (a valid document). "
                 "Strictly follow the embedded contract inside the user's HTML prompt. "
@@ -758,8 +918,8 @@ class handler(BaseHTTPRequestHandler):
                 "Do NOT add explanations or code fences."
             )
 
-            # Build strict system contract for Vocabulary prompts
-            system_message = build_system_message(base_system, prompt)
+            # Build strict system contract for Vocabulary prompts, respecting selected sections
+            system_message = build_system_message(base_system, prompt, selected_sections=selected_set)
 
             # --- First generation ---
             completion = client.chat.completions.create(
@@ -783,6 +943,9 @@ class handler(BaseHTTPRequestHandler):
             ai_content = fix_adverbs_highlight(ai_content)
             ai_content = ensure_nouns_en_blue_and_parentheses_plain(ai_content)
 
+            # Always clear unselected sections to guarantee empty tbody
+            ai_content = filter_unselected_sections(ai_content, inc_flags)
+
             # --- One-shot verify & LLM repair (Vocabulary only) ---
             if IS_VOCAB_RE.search(prompt or ""):
                 lo, hi = parse_vocab_range(prompt)
@@ -792,8 +955,8 @@ class handler(BaseHTTPRequestHandler):
                     pmin, _ = phrases_questions_row_targets(target_total)
 
                     counts = verify_vocab_counts(ai_content)
-                    if needs_repair(counts, quotas, (pmin, 10)):
-                        repair_block = build_repair_prompt(lo, hi, quotas, pmin)
+                    if needs_repair(counts, quotas, (pmin, 10), inc_flags):
+                        repair_block = build_repair_prompt(lo, hi, quotas, pmin, inc_flags)
                         completion2 = client.chat.completions.create(
                             model=os.getenv("OPENAI_MODEL", "gpt-4o"),
                             temperature=0.7,
@@ -807,14 +970,16 @@ class handler(BaseHTTPRequestHandler):
                         m2 = FENCE_RE.match(fixed)
                         if m2:
                             fixed = m2.group(1).strip()
-                        # Re-apply color normalization (keeps counts aligned)
+                        # Re-apply color normalization
                         fixed = fix_verbs_highlight(fixed)
                         fixed = fix_adverbs_highlight(fixed)
                         fixed = ensure_nouns_en_blue_and_parentheses_plain(fixed)
+                        # Clear unselected again after repair
+                        fixed = filter_unselected_sections(fixed, inc_flags)
                         ai_content = fixed
 
-                    # FINAL GUARANTEE: ensure Common Phrases/Questions ≥ 8 rows (≤10), without touching N/V/A/D counts.
-                    ai_content = _ensure_common_minimum(ai_content, min_rows=max(8, pmin), max_rows=10)
+                    # FINAL GUARANTEE: ensure Common Phrases/Questions ≥ 8 rows (≤10) ONLY if included.
+                    ai_content = _ensure_common_minimum(ai_content, min_rows=max(8, pmin), max_rows=10, inc_flags=inc_flags)
 
             # Send response
             self.send_response(200)
