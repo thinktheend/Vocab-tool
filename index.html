@@ -658,15 +658,17 @@ ${sectionsHTML}
   }
 
   const topic = (topicEl.value || '').trim();
-
-  const promptText = `You are an expert assistant for the FCS program.
+  const selectedSections = Array.from(getSelectedSections());
+  
+  // Build prompt text based on selected sections
+  let promptText = `You are an expert assistant for the FCS program.
  Explicit INstruction which is must to be followed: Do not give me code or html.
  You must always follow every instruction below exactly.
  Never ask me follow-up questions, never stop early, and never skip or merge sections.
  For each conversation, the header must include both its number and a descriptive name that defines what the conversation is about. For example: “Conversation 1 — Asking for pool equipment” / “Conversación 1 — Pidiendo equipo de piscina,” and “Conversation 2 — Making weekend swim plans” / “Conversación 2 — Haciendo planes de natación para el fin de semana.” Use the same format for both English and Spanish headers.
  Enforce two-column structure in all sections
 
-All sections (Nouns, Verbs in Sentences, Adjectives, Adverbs, Common Phrases, Common Questions, Conversations, Monologue) must always be presented in a two-column Markdown table. The left column is always English, the right column is always Spanish. Each header row must explicitly define the columns (example: “English | Español”). Never use one-column or mixed formatting.
+All sections must always be presented in a two-column Markdown table. The left column is always English, the right column is always Spanish. Each header row must explicitly define the columns (example: “English | Español”). Never use one-column or mixed formatting.
 Spacing & consistency reminder
 
 Topic: “${topic}”
@@ -677,7 +679,11 @@ At the very top, present the topic title in a two-column Markdown table row.
 
 
 Title | Título
- Topic in English | Topic in Spanish
+ Topic in English | Topic in Spanish`;
+
+  // Only include sections that are selected
+  if (selectedSections.includes('nouns')) {
+    promptText += `
 
 1. Nouns
 Present nouns in a two-column Markdown table.
@@ -706,9 +712,11 @@ All nouns must be relevant to the topic.
 
 
 After each subcategory’s table, insert one completely blank row with just spaces,
- then the new section title, then one blank line before the new table begins.
+ then the new section title, then one blank line before the new table begins.`;
+  }
 
-
+  if (selectedSections.includes('verbs')) {
+    promptText += `
 
 2. Verbs in Sentences
 Present in a two-column Markdown table.
@@ -742,9 +750,11 @@ no nouns, just a third-person subject (he, she, it, they)
 Verbs must be relevant to the topic.
 
 
-End the table with one completely blank row with just spaces, then the new section title, then another blank line.
+End the table with one completely blank row with just spaces, then the new section title, then another blank line.`;
+  }
 
-
+  if (selectedSections.includes('adjectives')) {
+    promptText += `
 
 3. Adjectives
 Present in a two-column Markdown table.
@@ -763,9 +773,11 @@ Only the adjective should be bold.
 Each major noun must appear with at least two adjectives (contrasting or related).
 
 
-End with the same spacing rule.
+End with the same spacing rule.`;
+  }
 
-
+  if (selectedSections.includes('adverbs')) {
+    promptText += `
 
 4. Adverbs
 Present in a two-column Markdown table.
@@ -784,9 +796,11 @@ Only the adverb should be bold.
 Adverbs must fit the context of the topic.
 
 
-End with the same spacing rule.
+End with the same spacing rule.`;
+  }
 
-
+  if (selectedSections.includes('phrases')) {
+    promptText += `
 
 5. Common Phrases
 Present in a two-column Markdown table.
@@ -802,9 +816,11 @@ Phrases must be relevant to the topic.
 Write no more than 7 phrases.
 
 
-End with the same spacing rule.
+End with the same spacing rule.`;
+  }
 
-
+  if (selectedSections.includes('questions')) {
+    promptText += `
 
 6. Common Questions
 Present in a two-column Markdown table.
@@ -823,9 +839,11 @@ Write no more than 7 questions.
 Questions must be relevant to the topic.
 
 
-End with the same spacing rule.
+End with the same spacing rule.`;
+  }
 
-
+  // Always include Conversations and Monologue sections
+  promptText += `
 
 7. Conversations
 Create two sample conversations in a two-column table.
