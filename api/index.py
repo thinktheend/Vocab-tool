@@ -909,6 +909,7 @@ class handler(BaseHTTPRequestHandler):
 
             # Base system message
             base_system = (
+                "Validation: Each section will be segregated into proper two columns English and Spanish of sufficiant width"
                 "You are an expert FCS assistant. Return ONLY full raw HTML (a valid document). "
                 "Strictly follow the embedded contract inside the user's HTML prompt. "
                 "ABSOLUTE LENGTH COMPLIANCE: When ranges are provided (counts or sentences/words), "
